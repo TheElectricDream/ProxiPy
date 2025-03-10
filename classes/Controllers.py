@@ -146,7 +146,7 @@ class LinearQuadraticRegulator:
             raise ValueError("Control signal in body frame not available")
             
         # Optimize duty cycles with integrated constraints
-        self.dutyCycle = self.optimize_duty_cycle_fast(self.controlSignalBodyFrame)
+        self.dutyCycle = self.optimize_duty_cycle_realtime(self.controlSignalBodyFrame)
 
     def optimize_duty_cycle(self, u_desired, max_iters=100, tol=1e-6):
         """
@@ -232,6 +232,72 @@ class LinearQuadraticRegulator:
         # Calculate final control signal with updated decay
         H_decayed = self._make_H_with_decay(self.current_decay_factor)
         self.saturatedControlSignalBodyFrame = H_decayed @ duty_cycles
+        
+        return duty_cycles
+    
+    def optimize_duty_cycle_realtime(self, u_desired):
+        """
+        Highly optimized method for real-time thruster allocation
+        avoiding pseudoinverse calculation.
+        
+        Parameters:
+        u_desired (np.ndarray): Desired control forces/torques in body frame
+        
+        Returns:
+        np.ndarray: Optimized thruster duty cycles
+        """
+        # Check or compute H matrix with current decay factor
+        if not hasattr(self, '_cached_H') or self._cached_decay_factor != self.current_decay_factor:
+            self._cached_H = self._make_H_with_decay(self.current_decay_factor)
+            self._cached_decay_factor = self.current_decay_factor
+            
+            # Pre-compute the normal equation matrix for faster solving
+            # (H^T * H) and (H^T)
+            self._cached_HTH = self._cached_H.T @ self._cached_H
+            self._cached_HT = self._cached_H.T
+            
+            # Add small regularization to ensure numerical stability
+            n = self._cached_HTH.shape[0]
+            self._cached_HTH += np.eye(n) * 1e-6
+            
+            # Pre-compute Cholesky factorization for faster solving
+            # More efficient than QR for least squares via normal equations
+            try:
+                self._cached_L = np.linalg.cholesky(self._cached_HTH)
+            except np.linalg.LinAlgError:
+                # Fallback if Cholesky fails (not positive definite)
+                self._cached_L = None
+        
+        # Solve the least-squares problem using normal equations
+        HTu = self._cached_HT @ u_desired
+        
+        # Use cached Cholesky factorization if available
+        if hasattr(self, '_cached_L') and self._cached_L is not None:
+            # Solve using Cholesky (fastest method)
+            y = scipy.linalg.solve_triangular(self._cached_L, HTu, lower=True)
+            duty_cycles = scipy.linalg.solve_triangular(self._cached_L.T, y, lower=False)
+        else:
+            # Fallback to direct solve
+            duty_cycles = np.linalg.solve(self._cached_HTH, HTu)
+        
+        # Apply saturation (clip to [0,1])
+        duty_cycles = np.clip(duty_cycles, 0, 1.0)
+        
+        # Apply minimum on-time constraint
+        duty_cycles[duty_cycles < self.min_duty_cycle] = 0.0
+        
+        # Recalculate decay factor based on final duty cycles
+        new_decay_factor = self._calculate_thrust_decay(duty_cycles)
+        
+        # Only update if the change is significant
+        if abs(new_decay_factor - self.current_decay_factor) > 0.01:
+            self.current_decay_factor = new_decay_factor
+            # Clear cache to force recalculation
+            if hasattr(self, '_cached_decay_factor'):
+                self._cached_decay_factor = None
+        
+        # Calculate final control signal
+        self.saturatedControlSignalBodyFrame = self._cached_H @ duty_cycles
         
         return duty_cycles
 

@@ -6,6 +6,115 @@ from classes.Spacecraft import Spacecraft
 from classes.Controllers import LinearQuadraticRegulator
 from classes.Storage import Storage
 import getpass
+import time
+
+def get_current_locations_exp(stream_processor, chaser_active, target_active, obstacle_active):
+    """
+    Get the current locations of the chaser, target, and obstacle spacecraft from the PhaseSpace system.
+    This function retrieves the latest states of the chaser, target, and obstacle spacecraft from the
+    PhaseSpace system and stores them in the respective variables. If the data is invalid, the function
+    will print an error message and skip the current iteration.
+    Parameters
+    ----------
+    stream_processor : StreamProcessor
+        The stream processor object used to retrieve the latest states from PhaseSpace.
+    chaser_active : bool
+        A boolean flag indicating whether the chaser spacecraft is active.
+    target_active : bool
+        A boolean flag indicating whether the target spacecraft is active.
+    obstacle_active : bool
+        A boolean flag indicating whether the obstacle spacecraft is active.
+    Returns
+    -------
+    tuple
+        A tuple containing the following elements:
+        - currentLocationChaser : np.ndarray
+            The current location of the chaser spacecraft.
+        - currentLocationTarget : np.ndarray
+            The current location of the target spacecraft.
+        - currentLocationObstacle : np.ndarray
+            The current location of the obstacle spacecraft.
+    Notes
+    -----
+    The function will print an error message if the data is invalid and skip the current iteration.
+    """
+
+    # Get the latest states from PhaseSpace
+    latest_states = stream_processor.get()
+
+    # Check that the data is valid and chaser is active
+    if latest_states.get("chaser") is None and chaser_active:
+
+        # If there is no data but the chaser is active, then wait for new data
+        print('Chaser data is invalid; skipping...')
+        t_init = time.perf_counter()  # Reset the clock
+    
+    # Check that the data is valid and target is not active
+    elif latest_states.get("chaser") is None and not chaser_active:
+        
+        # If there is no data and the chaser is not active, then pass to continue the simulation
+        skip = True
+    
+    elif latest_states.get("chaser") is not None and chaser_active:
+        currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
+                        latest_states.get("chaser")['pos'][1],
+                        latest_states.get("chaser")['att'],
+                        latest_states.get("chaser")['vel'][0],
+                        latest_states.get("chaser")['vel'][1],
+                        latest_states.get("chaser")['omega']])
+        
+    else:
+        currentLocationChaser = None
+        skip = True
+    
+    if latest_states.get("target") is None and target_active:
+        
+        # If there is no data but the target is active, then wait for new data
+        print('Target data is invalid; skipping...')
+        t_init = time.perf_counter()  # Reset the clock
+
+    elif latest_states.get("target") is None and not target_active:
+        
+        # If there is no data and the target is not active, then pass to continue the simulation
+        skip = True
+
+    elif latest_states.get("target") is not None and target_active:
+        currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
+                        latest_states.get("target")['pos'][1],
+                        latest_states.get("target")['att'],
+                        latest_states.get("target")['vel'][0],
+                        latest_states.get("target")['vel'][1],
+                        latest_states.get("target")['omega']])
+        
+    else:
+        currentLocationTarget = None
+        skip = True
+
+    if latest_states.get("obstacle") is None and obstacle_active:
+        
+        # If there is no data but the obstacle is active, then wait for new data
+        print('Obstacle data is invalid; skipping...')
+        t_init = time.perf_counter()
+        
+    elif latest_states.get("obstacle") is None and not obstacle_active:
+        
+        # If there is no data and the obstacle is not active, then pass to continue the simulation
+        skip = True
+        
+    elif latest_states.get("obstacle") is not None and obstacle_active:
+    
+        currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
+                        latest_states.get("obstacle")['pos'][1],
+                        latest_states.get("obstacle")['att'],
+                        latest_states.get("obstacle")['vel'][0],
+                        latest_states.get("obstacle")['vel'][1],
+                        latest_states.get("obstacle")['omega']])
+        
+    else: 
+        currentLocationObstacle = None
+        skip = True
+
+    return currentLocationChaser, currentLocationTarget, currentLocationObstacle, t_init, skip
 
 def get_platform_id():
     """

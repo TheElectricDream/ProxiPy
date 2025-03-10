@@ -18,7 +18,7 @@ import cProfile
 import pstats
 
 # Import custom libraries
-from utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id
+from utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, get_current_locations_exp
 from classes.Phasespace import OwlStreamProcessor
 from classes.Thrusters import Thrusters
 
@@ -48,7 +48,7 @@ def main():
         track_phase, is_phase = create_phase_tracker(phases)
 
         # Set experiment parameters
-        IS_EXPERIMENT = True
+        IS_EXPERIMENT = False
 
         # Set simulation parameters
         IS_REALTIME = False
@@ -146,47 +146,12 @@ def main():
 
             if IS_EXPERIMENT:
 
-                # Get the latest states from PhaseSpace
-                latest_states = stream_processor.get()
+                # Get the latest states from the PhaseSpace system
+                currentLocationChaser, currentLocationTarget, currentLocationObstacle, t_init, skip_loop = get_current_locations_exp(stream_processor)
 
-                # Check that the data is valid
-                if latest_states.get("chaser") is None and CHASER_ACTIVE:
-                    print('Chaser data is invalid; skipping...')
-                    t_init = time.perf_counter()
-                    continue
-                else:
+                if skip_loop:
+                    pass
 
-                    currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
-                                                        latest_states.get("chaser")['pos'][1],
-                                                        latest_states.get("chaser")['att'],
-                                                        latest_states.get("chaser")['vel'][0],
-                                                        latest_states.get("chaser")['vel'][1],
-                                                        latest_states.get("chaser")['omega']])
-                
-                if latest_states.get("target") is None and TARGET_ACTIVE:
-                    print('Target data is invalid; skipping...')
-                    t_init = time.perf_counter()
-                    continue
-                else:
-
-                    currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
-                                                        latest_states.get("target")['pos'][1],
-                                                        latest_states.get("target")['att'],
-                                                        latest_states.get("target")['vel'][0],
-                                                        latest_states.get("target")['vel'][1],
-                                                        latest_states.get("target")['omega']])
-
-                # if latest_states.get("obstacle") is None or OBSTACLE_ACTIVE:
-                #     print('Obstacle data is invalid; skipping...')
-                #     continue
-                # else:
-                
-                #     currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
-                #                                         latest_states.get("obstacle")['pos'][1],
-                #                                         latest_states.get("obstacle")['att'],
-                #                                         latest_states.get("obstacle")['vel'][0],
-                #                                         latest_states.get("obstacle")['vel'][1],
-                #                                         latest_states.get("obstacle")['omega']])
                 
             else:
 
@@ -564,4 +529,4 @@ if __name__ == '__main__':
 
     # Create a Stats object and sort the results
     stats = pstats.Stats(profiler).sort_stats('cumulative')
-    stats.print_stats(10)  # Print the 10 slowest functions
+    stats.print_stats(100)  # Print the 10 slowest functions
