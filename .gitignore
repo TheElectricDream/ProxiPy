@@ -172,3 +172,14 @@ cython_debug/
 
 # Numpy files
 *.npy
+
+# Ensure these directories are included even if empty
+!app/.gitkeep
+!bin/.gitkeep
+!classes/.gitkeep
+!config/.gitkeep
+!docs/.gitkeep
+!lib/.gitkeep
+!main/.gitkeep
+!scripts/.gitkeep
+!tests/.gitkeep
