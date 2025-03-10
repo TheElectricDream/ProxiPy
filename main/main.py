@@ -18,7 +18,7 @@ import cProfile
 import pstats
 
 # Import custom libraries
-from utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, get_current_locations_exp
+from tools.utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, get_current_locations_exp
 from classes.Phasespace import OwlStreamProcessor
 from classes.Thrusters import Thrusters
 
@@ -92,7 +92,7 @@ def main():
         t_rt = time.perf_counter()
 
         # Get the identity of the hardware
-        whoami = get_platform_id()
+        PLATFORM = get_platform_id()
 
         # Start the thrusters
         thrusters.start()
@@ -356,9 +356,6 @@ def main():
                 # Computer the duty cycle
                 chaserControl.compute_duty_cycle()
 
-                # Set all duty cycle values to 0.8 for debugging
-                #chaserControl.dutyCycle = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-
                 # Apply the control signal to the thrusters
                 thrusters.set_all_duty_cycles(chaserControl.dutyCycle.tolist())
 
@@ -522,11 +519,11 @@ def main():
 
 
 if __name__ == '__main__':
-    profiler = cProfile.Profile()
-    profiler.enable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
     main()  # Run the code you want to profile
-    profiler.disable()
+    # profiler.disable()
 
-    # Create a Stats object and sort the results
-    stats = pstats.Stats(profiler).sort_stats('cumulative')
-    stats.print_stats(100)  # Print the 10 slowest functions
+    # # Create a Stats object and sort the results
+    # stats = pstats.Stats(profiler).sort_stats('cumulative')
+    # stats.print_stats(100)  # Print the 10 slowest functions

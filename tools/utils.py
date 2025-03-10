@@ -1,6 +1,5 @@
 from time import perf_counter_ns
 import numpy as np
-from datetime import datetime
 import json
 from classes.Spacecraft import Spacecraft
 from classes.Controllers import LinearQuadraticRegulator
@@ -34,6 +33,10 @@ def get_current_locations_exp(stream_processor, chaser_active, target_active, ob
             The current location of the target spacecraft.
         - currentLocationObstacle : np.ndarray
             The current location of the obstacle spacecraft.
+        - t_init : float
+            The initial time for the clock.
+        - skip : bool
+            A boolean flag indicating whether to skip the current iteration.
     Notes
     -----
     The function will print an error message if the data is invalid and skip the current iteration.
