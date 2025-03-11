@@ -13,7 +13,7 @@ class OwlStreamProcessor:
     continuously processes incoming events. The latest state for each rigid body can be
     retrieved using the `get()` method.
     """
-    def __init__(self, TIMEOUT, STREAMING, FREQUENCY, SERVER):
+    def __init__(self, TIMEOUT, STREAMING, FREQUENCY, SERVER, mode='master'):
         """
         Initializes the Owl stream processor.
 
@@ -22,9 +22,11 @@ class OwlStreamProcessor:
             STREAMING (str): Streaming mode (e.g., "UDP").
             FREQUENCY (int): Desired streaming frequency.
             SERVER (str): Server address.
+            mode (str): Mode of operation, either 'master' or 'slave'.
         """
+        self.mode = mode
         # Initialize Owl context (server)
-        self.owl_context = self._initialize_server(TIMEOUT, STREAMING, FREQUENCY, SERVER)
+        self.owl_context = self._initialize_server(TIMEOUT, STREAMING, FREQUENCY, SERVER, mode)
         
         # Set up rigid body trackers and get their IDs
         self.tracker_ID_CHASER, self.tracker_ID_TARGET, self.tracker_ID_OBSTACLE = self._initialize_rigid_bodies(self.owl_context)
@@ -42,7 +44,7 @@ class OwlStreamProcessor:
         self.thread.start()
 
 
-    def _initialize_server(self, TIMEOUT, STREAMING, FREQUENCY, SERVER):
+    def _initialize_server(self, TIMEOUT, STREAMING, FREQUENCY, SERVER, mode):
         """
         Initializes and returns an Owl context connected to the server.
 
@@ -51,13 +53,17 @@ class OwlStreamProcessor:
             STREAMING (str): Streaming mode.
             FREQUENCY (int): Desired streaming frequency.
             SERVER (str): Server address.
+            mode (str): Mode of operation, either 'master' or 'slave'.
 
         Returns:
             owl.Context: The initialized Owl context.
         """
         owl_context = owl.Context()
         owl_context.open(SERVER, "timeout=" + str(TIMEOUT))
-        owl_context.initialize('streaming=' + str(STREAMING) + ' frequency=' + str(FREQUENCY))
+        if mode == 'master':
+            owl_context.initialize('streaming=' + str(STREAMING) + ' frequency=' + str(FREQUENCY))
+        elif mode == 'slave':
+            owl_context.initialize('streaming=' + str(STREAMING) + ' frequency=' + str(FREQUENCY) + ' slave=1')
         return owl_context
 
     def _initialize_rigid_bodies(self, owl_context):

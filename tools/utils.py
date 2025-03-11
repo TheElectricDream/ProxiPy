@@ -7,117 +7,173 @@ from classes.Storage import Storage
 import getpass
 import time
 
-def get_current_locations_exp(stream_processor, chaser_active, target_active, obstacle_active):
+try:
+    import Jetson.GPIO as GPIO
+except ImportError:
+    print('Unable to import Jetson.GPIO, running in simulation mode.')
+
+def enable_disable_pucks(enable=False):
+
+    # Define the pin for the pucks
+    PIN = 11
+
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setwarnings(False)
+
+    if enable:
+
+        try:
+
+            # Set a pucks to open
+            GPIO.setup(PIN, GPIO.OUT)
+            GPIO.output(PIN, GPIO.HIGH)
+
+        except:
+
+            print("Unable to set the pucks to HIGH")
+
+    else:
+
+        try:
+
+            # Set a pucks to open
+            GPIO.setup(PIN, GPIO.OUT)
+            GPIO.output(PIN, GPIO.LOW)
+
+        except:
+
+            print("Unable to set the pucks to LOW")
+
+def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, currentGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE):
     """
-    Get the current locations of the chaser, target, and obstacle spacecraft from the PhaseSpace system.
-    This function retrieves the latest states of the chaser, target, and obstacle spacecraft from the
-    PhaseSpace system and stores them in the respective variables. If the data is invalid, the function
-    will print an error message and skip the current iteration.
+    Handle the data logging.
+    This function appends the current time and spacecraft states to the data container.
     Parameters
     ----------
-    stream_processor : StreamProcessor
-        The stream processor object used to retrieve the latest states from PhaseSpace.
-    chaser_active : bool
-        A boolean flag indicating whether the chaser spacecraft is active.
-    target_active : bool
-        A boolean flag indicating whether the target spacecraft is active.
-    obstacle_active : bool
-        A boolean flag indicating whether the obstacle spacecraft is active.
+    t_now : float
+        The current time.
+    latest_states : dict
+        A dictionary containing the latest states of the chaser, target, and obstacle spacecraft.
+    chaserControl : LinearQuadraticRegulator
+        The controller for the chaser spacecraft.
+    thrustersChaser : Thrusters
+        The thrusters for the chaser spacecraft.
+    dataContainer : Storage
+        Container for storing data.
     Returns
     -------
-    tuple
-        A tuple containing the following elements:
-        - currentLocationChaser : np.ndarray
-            The current location of the chaser spacecraft.
-        - currentLocationTarget : np.ndarray
-            The current location of the target spacecraft.
-        - currentLocationObstacle : np.ndarray
-            The current location of the obstacle spacecraft.
-        - t_init : float
-            The initial time for the clock.
-        - skip : bool
-            A boolean flag indicating whether to skip the current iteration.
-    Notes
-    -----
-    The function will print an error message if the data is invalid and skip the current iteration.
+    None
     """
 
-    # Get the latest states from PhaseSpace
-    latest_states = stream_processor.get()
+    # Instead of multiple individual appends:
 
-    # Check that the data is valid and chaser is active
-    if latest_states.get("chaser") is None and chaser_active:
+    batch_data_general = {
+            'Time (s)': t_now
+    }
+    if CHASER_ACTIVE:
+        batch_data_chaser = {
+            'Chaser Px (m)': latest_states.get("chaser")['pos'][0],
+            'Chaser Py (m)': latest_states.get("chaser")['pos'][1],
+            'Chaser Rz (rad)': latest_states.get("chaser")['att'],
+            'Chaser Vx (m/s)': latest_states.get("chaser")['vel'][0],
+            'Chaser Vy (m/s)': latest_states.get("chaser")['vel'][1],
+            'Chaser Wz (rad/s)': latest_states.get("chaser")['omega'],
+            'Chaser Duty Cycle [1]': chaserControl.dutyCycle[0],
+            'Chaser Duty Cycle [2]': chaserControl.dutyCycle[1],
+            'Chaser Duty Cycle [3]': chaserControl.dutyCycle[2],
+            'Chaser Duty Cycle [4]': chaserControl.dutyCycle[3],
+            'Chaser Duty Cycle [5]': chaserControl.dutyCycle[4],
+            'Chaser Duty Cycle [6]': chaserControl.dutyCycle[5],
+            'Chaser Duty Cycle [7]': chaserControl.dutyCycle[6],
+            'Chaser Duty Cycle [8]': chaserControl.dutyCycle[7],
+            'Chaser PWM [1]': thrustersChaser.get_state(1),
+            'Chaser PWM [2]': thrustersChaser.get_state(2),
+            'Chaser PWM [3]': thrustersChaser.get_state(3),
+            'Chaser PWM [4]': thrustersChaser.get_state(4),
+            'Chaser PWM [5]': thrustersChaser.get_state(5),
+            'Chaser PWM [6]': thrustersChaser.get_state(6),
+            'Chaser PWM [7]': thrustersChaser.get_state(7),
+            'Chaser PWM [8]': thrustersChaser.get_state(8),
+            'Chaser Gyro X (rad/s)': currentGyroAccel['gx'],
+            'Chaser Gyro Y (rad/s)': currentGyroAccel['gy'],
+            'Chaser Gyro Z (rad/s)': currentGyroAccel['gz'],
+            'Chaser Accel X (m/s²)': currentGyroAccel['ax'],
+            'Chaser Accel Y (m/s²)': currentGyroAccel['ay'],
+            'Chaser Accel Z (m/s²)': currentGyroAccel['az']
+        }
 
-        # If there is no data but the chaser is active, then wait for new data
-        print('Chaser data is invalid; skipping...')
-        t_init = time.perf_counter()  # Reset the clock
-    
-    # Check that the data is valid and target is not active
-    elif latest_states.get("chaser") is None and not chaser_active:
-        
-        # If there is no data and the chaser is not active, then pass to continue the simulation
-        skip = True
-    
-    elif latest_states.get("chaser") is not None and chaser_active:
-        currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
-                        latest_states.get("chaser")['pos'][1],
-                        latest_states.get("chaser")['att'],
-                        latest_states.get("chaser")['vel'][0],
-                        latest_states.get("chaser")['vel'][1],
-                        latest_states.get("chaser")['omega']])
-        
     else:
-        currentLocationChaser = None
-        skip = True
-    
-    if latest_states.get("target") is None and target_active:
-        
-        # If there is no data but the target is active, then wait for new data
-        print('Target data is invalid; skipping...')
-        t_init = time.perf_counter()  # Reset the clock
 
-    elif latest_states.get("target") is None and not target_active:
-        
-        # If there is no data and the target is not active, then pass to continue the simulation
-        skip = True
+        batch_data_chaser = {}
 
-    elif latest_states.get("target") is not None and target_active:
-        currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
-                        latest_states.get("target")['pos'][1],
-                        latest_states.get("target")['att'],
-                        latest_states.get("target")['vel'][0],
-                        latest_states.get("target")['vel'][1],
-                        latest_states.get("target")['omega']])
-        
+    if TARGET_ACTIVE:
+
+        batch_data_target = {
+            'Target Px (m)': latest_states.get("target")['pos'][0],
+            'Target Py (m)': latest_states.get("target")['pos'][1],
+            'Target Rz (rad)': latest_states.get("target")['att'],
+            'Target Vx (m/s)': latest_states.get("target")['vel'][0],
+            'Target Vy (m/s)': latest_states.get("target")['vel'][1],
+            'Target Wz (rad/s)': latest_states.get("target")['omega'],
+            'Target Duty Cycle [1]': targetControl.dutyCycle[0],
+            'Target Duty Cycle [2]': targetControl.dutyCycle[1],
+            'Target Duty Cycle [3]': targetControl.dutyCycle[2],
+            'Target Duty Cycle [4]': targetControl.dutyCycle[3],
+            'Target Duty Cycle [5]': targetControl.dutyCycle[4],
+            'Target Duty Cycle [6]': targetControl.dutyCycle[5],
+            'Target Duty Cycle [7]': targetControl.dutyCycle[6],
+            'Target Duty Cycle [8]': targetControl.dutyCycle[7],
+            'Target PWM [1]': thrustersTarget.get_state(1),
+            'Target PWM [2]': thrustersTarget.get_state(2),
+            'Target PWM [3]': thrustersTarget.get_state(3),
+            'Target PWM [4]': thrustersTarget.get_state(4),
+            'Target PWM [5]': thrustersTarget.get_state(5),
+            'Target PWM [6]': thrustersTarget.get_state(6),
+            'Target PWM [7]': thrustersTarget.get_state(7),
+            'Target PWM [8]': thrustersTarget.get_state(8)
+        }
+
     else:
-        currentLocationTarget = None
-        skip = True
 
-    if latest_states.get("obstacle") is None and obstacle_active:
-        
-        # If there is no data but the obstacle is active, then wait for new data
-        print('Obstacle data is invalid; skipping...')
-        t_init = time.perf_counter()
-        
-    elif latest_states.get("obstacle") is None and not obstacle_active:
-        
-        # If there is no data and the obstacle is not active, then pass to continue the simulation
-        skip = True
-        
-    elif latest_states.get("obstacle") is not None and obstacle_active:
-    
-        currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
-                        latest_states.get("obstacle")['pos'][1],
-                        latest_states.get("obstacle")['att'],
-                        latest_states.get("obstacle")['vel'][0],
-                        latest_states.get("obstacle")['vel'][1],
-                        latest_states.get("obstacle")['omega']])
-        
-    else: 
-        currentLocationObstacle = None
-        skip = True
+        batch_data_target = {}
 
-    return currentLocationChaser, currentLocationTarget, currentLocationObstacle, t_init, skip
+    if OBSTACLE_ACTIVE:
+
+        batch_data_obstacle = {
+            'Obstacle Px (m)': latest_states.get("obstacle")['pos'][0],
+            'Obstacle Py (m)': latest_states.get("obstacle")['pos'][1],
+            'Obstacle Rz (rad)': latest_states.get("obstacle")['att'],
+            'Obstacle Vx (m/s)': latest_states.get("obstacle")['vel'][0],
+            'Obstacle Vy (m/s)': latest_states.get("obstacle")['vel'][1],
+            'Obstacle Wz (rad/s)': latest_states.get("obstacle")['omega'],
+            'Obstacle Duty Cycle [1]': obstacleControl.dutyCycle[0],
+            'Obstacle Duty Cycle [2]': obstacleControl.dutyCycle[1],
+            'Obstacle Duty Cycle [3]': obstacleControl.dutyCycle[2],
+            'Obstacle Duty Cycle [4]': obstacleControl.dutyCycle[3],
+            'Obstacle Duty Cycle [5]': obstacleControl.dutyCycle[4],
+            'Obstacle Duty Cycle [6]': obstacleControl.dutyCycle[5],
+            'Obstacle Duty Cycle [7]': obstacleControl.dutyCycle[6],
+            'Obstacle Duty Cycle [8]': obstacleControl.dutyCycle[7],
+            'Obstacle PWM [1]': thrustersObstacle.get_state(1),
+            'Obstacle PWM [2]': thrustersObstacle.get_state(2),
+            'Obstacle PWM [3]': thrustersObstacle.get_state(3),
+            'Obstacle PWM [4]': thrustersObstacle.get_state(4),
+            'Obstacle PWM [5]': thrustersObstacle.get_state(5),
+            'Obstacle PWM [6]': thrustersObstacle.get_state(6),
+            'Obstacle PWM [7]': thrustersObstacle.get_state(7),
+            'Obstacle PWM [8]': thrustersObstacle.get_state(8)
+        }
+
+    else:
+
+        batch_data_obstacle = {}
+
+
+    # Merge the dictionaries
+    batch_data = {**batch_data_general, **batch_data_chaser, **batch_data_target, **batch_data_obstacle}
+
+    # Append the data to the container
+    dataContainer.append_data_batch(batch_data)
 
 def get_platform_id():
     """

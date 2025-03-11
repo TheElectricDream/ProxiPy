@@ -1,33 +1,13 @@
-import Jetson.GPIO as GPIO  
-import time
+# Import system libraries
+import os
+import sys
 
-# Define the pin for the pucks
-PIN = 11
+# Add the project path so that lib files can be read
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(project_root)
 
-GPIO.setmode(GPIO.BOARD)
-GPIO.setwarnings(False)
+from tools.utils import enable_disable_pucks
 
-# Set default to off
-GPIO.setup(PIN, GPIO.OUT)
-GPIO.output(PIN, GPIO.LOW)
+# Enable all pucks
+enable_disable_pucks(False)
 
-try:
-
-    # Set a pucks to open
-    GPIO.setup(PIN, GPIO.OUT)
-    GPIO.output(PIN, GPIO.HIGH)
-
-    while True:
-        time.sleep(5)
-        print("Pucks are still on, press Ctrl+C to turn off....")
-
-
-except KeyboardInterrupt:
-
-    GPIO.output(PIN,GPIO.LOW)
-    print("\nExiting...")
-
-finally:
-
-    GPIO.output(PIN,GPIO.LOW)
-    GPIO.cleanup()

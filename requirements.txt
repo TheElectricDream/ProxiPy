@@ -14,3 +14,5 @@ signal
 datetime
 threading
 paramiko
+BMI160-i2c
+smbus2

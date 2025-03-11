@@ -64,21 +64,18 @@ class Thrusters:
         signal.signal(signal.SIGTERM, self._handle_exit)
     
     def _handle_exit(self, signum, frame):
-        """Handle exit signals to clean up GPIO."""
-        # Set the running flag to False to stop PWM loops
+        """Handle exit signals by setting the running flag to False."""
+        print("Thrusters stopping...")
+        
+        # Only set running to False, don't do any cleanup yet
         with self.running.get_lock():
             self.running.value = False
         
-        # Only cleanup in the main process, not in the child processes
-        if multiprocessing.current_process().name == 'MainProcess' and self.is_experiment:
-            try:
-                for pin in self.THRUSTER_PINS:
-                    GPIO.output(pin, GPIO.LOW)
-                GPIO.cleanup()
-            except Exception as e:
-                print(f"GPIO cleanup error (safe to ignore): {e}")
+        # If in main process, call stop
+        if multiprocessing.current_process().name == 'MainProcess':
+            self.stop()
         
-        print("Thrusters stopped.")
+    # Don't do anything else in the signal handler
     
     def start(self):
         """Start the PWM control process."""
@@ -94,30 +91,37 @@ class Thrusters:
         self.process = multiprocessing.Process(target=target)
         self.process.daemon = True
         self.process.start()
-    
+
     def stop(self):
         """Stop the PWM control process and clean up GPIO if needed."""
+        # Set running to False if not already
         with self.running.get_lock():
             self.running.value = False
         
         if self.process and self.process.is_alive():
             try:
                 # Give the process time to exit gracefully
-                time.sleep(0.1)
+                time.sleep(0.5)
                 self.process.join(timeout=1.0)
+                # Force terminate if still alive
                 if self.process.is_alive():
                     self.process.terminate()
-            except (AssertionError, ValueError) as e:
+            except Exception as e:
                 print(f"Process termination warning (safe to ignore): {e}")
         
         # Only cleanup in the main process
         if multiprocessing.current_process().name == 'MainProcess' and self.is_experiment:
             try:
                 for pin in self.THRUSTER_PINS:
-                    GPIO.output(pin, GPIO.LOW)
+                    try:
+                        GPIO.output(pin, GPIO.LOW)
+                    except:
+                        pass  # Ignore errors during shutdown
                 GPIO.cleanup()
             except Exception as e:
                 print(f"GPIO cleanup error (safe to ignore): {e}")
+        
+        print("Thrusters stopped.")
     
     def set_duty_cycle(self, thruster_index, duty_cycle):
         """
@@ -203,45 +207,78 @@ class Thrusters:
 
     def _pwm_control_loop(self):
         """
-        The PWM control loop for experiment mode that manipulates GPIO pins.
-        Runs in a separate process with real-time scheduling.
+        The PWM control loop with error handling for safe shutdown.
         """
         self._set_realtime_priority()
-        while self.running.value:
-            cycle_start_time = perf_counter()
-            # Update duty cycles if requested at the beginning of the cycle
-            with self.duty_cycle_lock:
-                if self.duty_cycle_updated.value:
-                    for i in range(self.NUM_THRUSTERS):
-                        self.duty_cycles[i] = self.requested_duty_cycles[i]
-                    self.duty_cycle_updated.value = False
-            
-            # Turn ON thrusters (if duty cycle > 0)
-            for i in range(self.NUM_THRUSTERS):
-                if self.duty_cycles[i] > 0:
-                    GPIO.output(self.THRUSTER_PINS[i], GPIO.HIGH)
-                    self.current_states[i] = True
-                else:
-                    GPIO.output(self.THRUSTER_PINS[i], GPIO.LOW)
-                    self.current_states[i] = False
-            
-            elapsed_time = 0
-            # PWM cycle: turn off thrusters when their on-duration expires
-            while elapsed_time < self.PERIOD and self.running.value:
-                current_time = perf_counter()
-                elapsed_time = current_time - cycle_start_time
+        
+        # Guard against exceptions during shutdown
+        try:
+            while self.running.value:
+                cycle_start_time = perf_counter()
+                
+                # Update duty cycles if requested
+                with self.duty_cycle_lock:
+                    if self.duty_cycle_updated.value:
+                        for i in range(self.NUM_THRUSTERS):
+                            self.duty_cycles[i] = self.requested_duty_cycles[i]
+                        self.duty_cycle_updated.value = False
+                
+                # Turn ON thrusters with exception handling
                 for i in range(self.NUM_THRUSTERS):
-                    on_duration = self.duty_cycles[i] * self.PERIOD
-                    if self.current_states[i] and elapsed_time >= on_duration:
-                        GPIO.output(self.THRUSTER_PINS[i], GPIO.LOW)
+                    try:
+                        if self.running.value and self.duty_cycles[i] > 0:
+                            GPIO.output(self.THRUSTER_PINS[i], GPIO.HIGH)
+                            self.current_states[i] = True
+                        elif self.running.value:
+                            GPIO.output(self.THRUSTER_PINS[i], GPIO.LOW)
+                            self.current_states[i] = False
+                    except Exception:
+                        # If error occurs (e.g. during shutdown), mark as off
                         self.current_states[i] = False
-                time.sleep(0.0001)
-            
-            remaining_time = self.PERIOD - elapsed_time
-            if remaining_time > 0:
-                if remaining_time > 0.001:
-                    time.sleep(remaining_time - 0.001)
-                precise_delay_microsecond((remaining_time % 0.001) * 1e6)
+                
+                elapsed_time = 0
+                # PWM cycle with exception handling
+                while elapsed_time < self.PERIOD and self.running.value:
+                    current_time = perf_counter()
+                    elapsed_time = current_time - cycle_start_time
+                    
+                    for i in range(self.NUM_THRUSTERS):
+                        try:
+                            on_duration = self.duty_cycles[i] * self.PERIOD
+                            if self.running.value and self.current_states[i] and elapsed_time >= on_duration:
+                                GPIO.output(self.THRUSTER_PINS[i], GPIO.LOW)
+                                self.current_states[i] = False
+                        except Exception:
+                            # If error during shutdown, mark as off
+                            self.current_states[i] = False
+                    
+                    # Short sleep to avoid CPU hogging
+                    time.sleep(0.0001)
+                
+                # Exit early if we're shutting down
+                if not self.running.value:
+                    break
+                    
+                # Wait for next cycle
+                remaining_time = self.PERIOD - elapsed_time
+                if remaining_time > 0:
+                    time.sleep(max(0, remaining_time))
+        
+        except Exception as e:
+            print(f"PWM control loop error: {e}")
+        
+        finally:
+            # Ensure cleanup in the process before exiting
+            if self.is_experiment:
+                try:
+                    for i in range(self.NUM_THRUSTERS):
+                        try:
+                            GPIO.output(self.THRUSTER_PINS[i], GPIO.LOW)
+                            self.current_states[i] = False
+                        except:
+                            pass
+                except Exception:
+                    pass
 
     def _simulate_pwm_control_loop(self):
         """

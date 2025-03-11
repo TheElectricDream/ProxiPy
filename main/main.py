@@ -18,12 +18,20 @@ import cProfile
 import pstats
 
 # Import custom libraries
-from tools.utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, get_current_locations_exp
+from tools.utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, handle_data_logging, enable_disable_pucks
 from classes.Phasespace import OwlStreamProcessor
 from classes.Thrusters import Thrusters
-
+from classes.BMI160 import IMUProcessor
 
 def main():
+
+    # Set these to None initially so they can be safely accessed in finally block
+    stream_processor = None
+    imu_processor = None
+    thrustersChaser = None
+    thrustersTarget = None
+    thrustersObstacle = None
+    dataContainer = None
 
     try:
         print('Setting initial control loop parameters...')
@@ -48,7 +56,7 @@ def main():
         track_phase, is_phase = create_phase_tracker(phases)
 
         # Set experiment parameters
-        IS_EXPERIMENT = False
+        IS_EXPERIMENT = True
 
         # Set simulation parameters
         IS_REALTIME = False
@@ -80,9 +88,17 @@ def main():
             # This will initialize the server, set up the rigid bodies, and start the background thread.
             stream_processor = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER)
 
-        # Handle GPIO logic for the thrusters
-        thrusters = Thrusters()
-        thrusters = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
+            # Create an instance of the IMUProcessor
+            imu_processor = IMUProcessor()
+
+        # Handle GPIO logic for the thrustersChaser
+        thrustersChaser = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
+
+        # Handle GPIO logic for the thrustersTarget
+        thrustersTarget = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
+
+        # Handle GPIO logic for the thrustersObstacle
+        thrustersObstacle = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
 
         # Set the start time for the experiment
         t_init = time.perf_counter()
@@ -94,8 +110,10 @@ def main():
         # Get the identity of the hardware
         PLATFORM = get_platform_id()
 
-        # Start the thrusters
-        thrusters.start()
+        # Start the thrustersChaser
+        thrustersChaser.start()
+        thrustersTarget.start()
+        thrustersObstacle.start()
 
         # Check if the experiment duration has been reached
         if IS_EXPERIMENT:
@@ -146,12 +164,79 @@ def main():
 
             if IS_EXPERIMENT:
 
-                # Get the latest states from the PhaseSpace system
-                currentLocationChaser, currentLocationTarget, currentLocationObstacle, t_init, skip_loop = get_current_locations_exp(stream_processor)
+                # Get the latest states from PhaseSpace
+                latest_states = stream_processor.get()
 
-                if skip_loop:
+                # Check that the data is valid and chaser is active
+                if latest_states.get("chaser") is None and CHASER_ACTIVE:
+
+                    # If there is no data but the chaser is active, then wait for new data
+                    print('Chaser data is invalid; waiting for good data...')
+                    t_init = time.perf_counter()  # Reset the clock
+                    currentLocationChaser = None
+                    time.sleep(2)
+                    continue
+                
+                elif latest_states.get("chaser") is not None and CHASER_ACTIVE:
+                    currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
+                                    latest_states.get("chaser")['pos'][1],
+                                    latest_states.get("chaser")['att'],
+                                    latest_states.get("chaser")['vel'][0],
+                                    latest_states.get("chaser")['vel'][1],
+                                    latest_states.get("chaser")['omega']])
+                    
+                else:
+                    currentLocationChaser = None
                     pass
 
+                # Check that the data is valid and target is active
+                if latest_states.get("target") is None and TARGET_ACTIVE:
+
+                    # If there is no data but the target is active, then wait for new data
+                    print('Target data is invalid; waiting for good data...')
+                    t_init = time.perf_counter()  # Reset the clock
+                    currentLocationTarget = None
+                    time.sleep(2)
+                    continue
+                
+                elif latest_states.get("target") is not None and TARGET_ACTIVE:
+                    currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
+                                    latest_states.get("target")['pos'][1],
+                                    latest_states.get("target")['att'],
+                                    latest_states.get("target")['vel'][0],
+                                    latest_states.get("target")['vel'][1],
+                                    latest_states.get("target")['omega']])
+                    
+                else:
+                    # If there is no data but the target is active, then wait for new data
+                    currentLocationTarget = None
+                    pass
+
+                # Check that the data is valid and obstacle is active
+                if latest_states.get("obstacle") is None and OBSTACLE_ACTIVE:
+
+                    # If there is no data but the obstacle is active, then wait for new data
+                    print('Obstacle data is invalid;  waiting for good data...')
+                    t_init = time.perf_counter()  # Reset the clock
+                    currentLocationObstacle = None
+                    time.sleep(2)
+                    continue
+                
+                elif latest_states.get("obstacle") is not None and OBSTACLE_ACTIVE:
+                    currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
+                                    latest_states.get("obstacle")['pos'][1],
+                                    latest_states.get("obstacle")['att'],
+                                    latest_states.get("obstacle")['vel'][0],
+                                    latest_states.get("obstacle")['vel'][1],
+                                    latest_states.get("obstacle")['omega']])
+                    
+                else:
+                    currentLocationObstacle = None
+                    pass               
+                
+                # Get the latest IMU data
+                currentGyroAccel = imu_processor.get()
+            
                 
             else:
 
@@ -193,6 +278,13 @@ def main():
             # HANDLE MAIN PHASE LOGIC
             #========================================#
 
+            phase0_clock = 0
+            phase1_clock = 0
+            phase2_clock = 0
+            phase3_clock = 0
+            phase4_clock = 0
+            phase5_clock = 0
+
             #----------------------------------------#
             # PHASE 0: Initialization
             #----------------------------------------#
@@ -205,7 +297,10 @@ def main():
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
                 # Set the PUCKS
-                # [WRITE A METHOD TO TURN OFF THE PUCKS]
+                enable_disable_pucks(False)
+
+                # Update the phase clock
+                phase0_clock += PERIOD
 
             #----------------------------------------#
             # PHASE 1: Pucks
@@ -219,7 +314,10 @@ def main():
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
                 # Set the PUCKS
-                # [WRITE A METHOD TO TURN ON THE PUCKS]
+                enable_disable_pucks(True)
+
+                # Update the phase clock
+                phase1_clock += PERIOD
 
             #----------------------------------------#
             # PHASE 2: Approach
@@ -228,28 +326,19 @@ def main():
             elif is_phase(2):
 
                 # Define the desired location for the chaser
-                desiredLocationChaser = np.array([chaser_params['CHASER_INIT'][0],
-                                                    chaser_params['CHASER_INIT'][1],
-                                                    chaser_params['CHASER_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationChaser = np.array([1.7558, 1.7096, np.pi, 0.0, 0.0, 0.0])  
                 
                 # Define the desired location for the target
-                desiredLocationTarget = np.array([target_params['TARGET_INIT'][0],
-                                                    target_params['TARGET_INIT'][1],
-                                                    target_params['TARGET_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
-                
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationTarget = np.array([1.7558, 1.2096, 0.0, 0.0, 0.0, 0.0])  
+
                 # Define the desired location for the obstacle
-                desiredLocationObstacle = np.array([obstacle_params['OBSTACLE_INIT'][0],
-                                                    obstacle_params['OBSTACLE_INIT'][1],
-                                                    obstacle_params['OBSTACLE_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationObstacle = np.array([1.7558, 0.7096, 0.0, 0.0, 0.0, 0.0])  
+
+                # Update the phase clock
+                phase2_clock += PERIOD
                 
             #----------------------------------------#
             # PHASE 3: User Experiments
@@ -257,29 +346,31 @@ def main():
 
             elif is_phase(3):
 
+                # Calculate a new time for this phase that starts at zero and increments
+
                 # Define the desired location for the chaser
-                desiredLocationChaser = np.array([chaser_params['CHASER_INIT'][0],
-                                                    chaser_params['CHASER_INIT'][1],
-                                                    chaser_params['CHASER_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                # desiredLocationChaser = np.array([1.7558, 1.7096, np.pi, 0.0, 0.0, 0.0])  
                 
                 # Define the desired location for the target
-                desiredLocationTarget = np.array([target_params['TARGET_INIT'][0],
-                                                    target_params['TARGET_INIT'][1],
-                                                    target_params['TARGET_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                
+                # Set a rotation rate
+                desiredAngularVelocity = 3.0 * np.pi / 180.0
+
+                # Based on the current time, calculate the desired angle
+                desiredAngle = desiredAngularVelocity * phase3_clock
+
+                desiredLocationChaser = np.array([1.7558, 1.7096, desiredAngle, 0.0, 0.0, desiredAngularVelocity]) 
+                
+                desiredLocationTarget = np.array([1.7558, 1.2096, desiredAngle, 0.0, 0.0, desiredAngularVelocity])  
                 
                 # Define the desired location for the obstacle
-                desiredLocationObstacle = np.array([obstacle_params['OBSTACLE_INIT'][0],
-                                                    obstacle_params['OBSTACLE_INIT'][1],
-                                                    obstacle_params['OBSTACLE_INIT'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationObstacle = np.array([1.7558, 0.7096, 0.0, 0.0, 0.0, 0.0])
+
+                # Update the phase clock
+                phase3_clock += PERIOD
                 
             #----------------------------------------#
             # PHASE 4: Home
@@ -288,28 +379,19 @@ def main():
             elif is_phase(4):
 
                 # Define the desired location for the chaser
-                desiredLocationChaser = np.array([chaser_params['CHASER_HOME'][0],
-                                                    chaser_params['CHASER_HOME'][1],
-                                                    chaser_params['CHASER_HOME'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationChaser = np.array([1.7558, 1.7096, np.pi, 0.0, 0.0, 0.0])  
                 
                 # Define the desired location for the target
-                desiredLocationTarget = np.array([target_params['TARGET_HOME'][0],
-                                                    target_params['TARGET_HOME'][1],
-                                                    target_params['TARGET_HOME'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationTarget = np.array([1.7558, 1.2096, 0.0, 0.0, 0.0, 0.0])  
                 
                 # Define the desired location for the obstacle
-                desiredLocationObstacle = np.array([obstacle_params['OBSTACLE_HOME'][0],
-                                                    obstacle_params['OBSTACLE_HOME'][1],
-                                                    obstacle_params['OBSTACLE_HOME'][2],
-                                                    0,
-                                                    0,
-                                                    0])
+                # [m, m, rad, m/s, m/s, rad/s]
+                desiredLocationObstacle = np.array([1.7558, 0.7096, 0.0, 0.0, 0.0, 0.0])
+
+                # Update the phase clock
+                phase4_clock += PERIOD
                 
             #----------------------------------------#
             # PHASE 5: Shutdown
@@ -323,7 +405,10 @@ def main():
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
                 # Set the PUCKS
-                # [WRITE A METHOD TO TURN OFF THE PUCKS]
+                enable_disable_pucks(False)
+
+                # Update the phase clock
+                phase5_clock += PERIOD
         
             #========================================#
             # HANDLE CONTROL LOGIC
@@ -356,15 +441,13 @@ def main():
                 # Computer the duty cycle
                 chaserControl.compute_duty_cycle()
 
-                # Apply the control signal to the thrusters
-                thrusters.set_all_duty_cycles(chaserControl.dutyCycle.tolist())
-
                 # Compute saturated duty cycle
                 chaserControl.compute_saturated_control_signal(attitude = latest_states.get("chaser")['att'])
 
                 if IS_EXPERIMENT:
 
-                    pass
+                    if PLATFORM == 1:
+                        thrustersChaser.set_all_duty_cycles(chaserControl.dutyCycle.tolist())
 
                 else:
 
@@ -392,7 +475,9 @@ def main():
 
                 if IS_EXPERIMENT:
                     
-                    pass
+                    if PLATFORM == 2:
+                        thrustersTarget.set_all_duty_cycles(targetControl.dutyCycle.tolist())
+
 
                 else:
 
@@ -420,7 +505,8 @@ def main():
 
                 if IS_EXPERIMENT:
 
-                    pass
+                    if PLATFORM == 3:
+                        thrustersObstacle.set_all_duty_cycles(obstacleControl.dutyCycle.tolist())
 
                 else:
                     
@@ -432,33 +518,7 @@ def main():
             # HANDLE DATA STORAGE
             #========================================#
 
-            # Instead of multiple individual appends:
-            batch_data = {
-                'Time (s)': t_now,
-                'Chaser Px (m)': latest_states.get("chaser")['pos'][0],
-                'Chaser Py (m)': latest_states.get("chaser")['pos'][1],
-                'Chaser Rz (rad)': latest_states.get("chaser")['att'],
-                'Chaser Vx (m/s)': latest_states.get("chaser")['vel'][0],
-                'Chaser Vy (m/s)': latest_states.get("chaser")['vel'][1],
-                'Chaser Wz (rad/s)': latest_states.get("chaser")['omega'],
-                'Chaser Duty Cycle [1]': chaserControl.dutyCycle[0],
-                'Chaser Duty Cycle [2]': chaserControl.dutyCycle[1],
-                'Chaser Duty Cycle [3]': chaserControl.dutyCycle[2],
-                'Chaser Duty Cycle [4]': chaserControl.dutyCycle[3],
-                'Chaser Duty Cycle [5]': chaserControl.dutyCycle[4],
-                'Chaser Duty Cycle [6]': chaserControl.dutyCycle[5],
-                'Chaser Duty Cycle [7]': chaserControl.dutyCycle[6],
-                'Chaser Duty Cycle [8]': chaserControl.dutyCycle[7],
-                'Chaser PWM [1]': thrusters.get_state(1),
-                'Chaser PWM [2]': thrusters.get_state(2),
-                'Chaser PWM [3]': thrusters.get_state(3),
-                'Chaser PWM [4]': thrusters.get_state(4),
-                'Chaser PWM [5]': thrusters.get_state(5),
-                'Chaser PWM [6]': thrusters.get_state(6),
-                'Chaser PWM [7]': thrusters.get_state(7),
-                'Chaser PWM [8]': thrusters.get_state(8)
-            }
-            dataContainer.append_data_batch(batch_data)
+            handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, currentGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE)
             
             #========================================#
             # HANDLE LOOP SLEEP CONDITIONS
@@ -492,29 +552,69 @@ def main():
                         precise_delay_microsecond((sleep_time % 0.001) * 1e6)
 
 
-        if IS_EXPERIMENT:
+        # if IS_EXPERIMENT:
 
-            # Stop the background data stream gracefully
-            stream_processor.stop()
+        #     # Stop the background data stream gracefully
+        #     stream_processor.stop()
+        #     imu_processor.stop()
 
-        # Stop the thrusters
-        thrusters.stop()  # Clean shutdown            
+        # # Ensure the pucks are off
+        # enable_disable_pucks(False)
+
+        # # Stop the thrustersChaser
+        # thrustersChaser.stop()  # Clean shutdown    
+        # thrustersTarget.stop()  # Clean shutdown
+        # thrustersObstacle.stop()  # Clean shutdown        
                         
         # Export the data
         #print('Exporting data container to /data/ directory...')
 
-
     except KeyboardInterrupt:
-        try:
-            dataContainer.write_to_npy()
-        except:
-            print('Failed to write data...')
+        print("Program interrupted by user")
+    except Exception as e:
+        print(f"Exception occurred: {e}")
     finally:
+        print("Executing cleanup operations...")
+        
+        # Ensure data is saved
         try:
-            dataContainer.write_to_npy()
-        except:
-            print('Failed to write data...')
-
+            if dataContainer:
+                print("Saving data...")
+                dataContainer.write_to_npy()
+                print("Data saved successfully")
+        except Exception as e:
+            print(f"Failed to write data: {e}")
+            
+        # Ensure pucks are disabled
+        try:
+            print("Disabling pucks...")
+            enable_disable_pucks(False)
+            print("Pucks disabled")
+        except Exception as e:
+            print(f"Failed to disable pucks: {e}")
+            
+        # Shutdown hardware resources
+        try:
+            if IS_EXPERIMENT and stream_processor:
+                stream_processor.stop()
+            if IS_EXPERIMENT and imu_processor:
+                imu_processor.stop()
+        except Exception as e:
+            print(f"Failed to stop processors: {e}")
+            
+        # Stop thrusters
+        try:
+            if thrustersChaser:
+                thrustersChaser.stop()
+            if thrustersTarget:
+                thrustersTarget.stop()
+            if thrustersObstacle:
+                thrustersObstacle.stop()
+            print("Thrusters stopped")
+        except Exception as e:
+            print(f"Failed to stop thrusters: {e}")
+            
+        print("Cleanup complete")
 
 
 
