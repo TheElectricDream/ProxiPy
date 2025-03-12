@@ -25,6 +25,7 @@ class OwlStreamProcessor:
             mode (str): Mode of operation, either 'master' or 'slave'.
         """
         self.mode = mode
+        self.frequency = FREQUENCY
         # Initialize Owl context (server)
         self.owl_context = self._initialize_server(TIMEOUT, STREAMING, FREQUENCY, SERVER, mode)
         
@@ -121,6 +122,10 @@ class OwlStreamProcessor:
                 if event.type_id == owl.Type.FRAME and "rigids" in event:
                     for r in event.rigids:
                         if r.cond > 0:
+
+                            # Get the system time
+                            timestamp = r.time/self.frequency 
+
                             # Compute yaw from the quaternion (q0, q1, q2, q3)
                             q0, q1, q2, q3 = r.pose[3:7]
                             yaw = np.arctan2(2.0 * (q0 * q3 + q1 * q2),
@@ -136,7 +141,7 @@ class OwlStreamProcessor:
                             
                             if key is not None:
                                 # Get the current time for delta calculations
-                                current_time = time.perf_counter()
+                                current_time = r.time/self.frequency 
                                 # Current measurement: [x, y, yaw]
                                 current_data = np.array([r.pose[0], r.pose[1], yaw])
                                 
@@ -161,6 +166,7 @@ class OwlStreamProcessor:
                                 # Update the state dictionary in a thread-safe manner
                                 with self.lock:
                                     self.states[key] = {
+                                        't': timestamp,
                                         "pos": current_data[:2]/1000,  # [x, y]
                                         "att": current_data[2],   # yaw angle
                                         "vel": vel/1000,               # [vx, vy]

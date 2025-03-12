@@ -27,7 +27,7 @@ import numpy as np
 SERVER = '192.168.1.109'
 TIMEOUT = 10000000
 STREAMING = 1  # 0 to disable, 1 for UDP, 2 for TCP, 3 for TCP Broadcast
-FREQUENCY = 10  # in Hz
+FREQUENCY = 100  # in Hz
 UDP_PORT = 53673
 
 #==============================================================================
@@ -117,6 +117,8 @@ try:
 
                         # Save the position of the RED rigid body and attitude
                         if r.id == tracker_ID_RED:
+
+                            print(r.time/FREQUENCY)
 
                             # Calculate the yaw of the RED rigid body
                             q0 = r.pose[3]

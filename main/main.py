@@ -1,4 +1,3 @@
-
 #==============================================================================
 # PREAMBLE
 #==============================================================================
@@ -6,6 +5,7 @@
 # Import system libraries
 import os
 import sys
+import argparse
 
 # Add the project path so that lib files can be read
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -24,10 +24,19 @@ from classes.Thrusters import Thrusters
 from classes.BMI160 import IMUProcessor
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Run ProxiPy experiment or simulation')
+    parser.add_argument('--experiment', action='store_true', help='Run in experiment mode (default: simulation mode)')
+    args = parser.parse_args()
+    
+    # Set experiment flag based on command line argument
+    IS_EXPERIMENT = args.experiment
 
+    #IS_EXPERIMENT = True
+    
     # Set these to None initially so they can be safely accessed in finally block
-    stream_processor = None
-    imu_processor = None
+    streamChaser = None
+    imuChaser = None
     thrustersChaser = None
     thrustersTarget = None
     thrustersObstacle = None
@@ -41,7 +50,6 @@ def main():
     phase3_clock = 0
     phase4_clock = 0
     phase5_clock = 0
-
 
     try:
         print('Setting initial control loop parameters...')
@@ -65,9 +73,6 @@ def main():
         # Create a phase tracker
         track_phase, is_phase = create_phase_tracker(phases)
 
-        # Set experiment parameters
-        IS_EXPERIMENT = False
-
         # Set simulation parameters
         IS_REALTIME = False
 
@@ -84,22 +89,99 @@ def main():
         dataContainer, chaser_params, target_params, \
         obstacle_params = class_init(PERIOD)
 
+        # Get the identity of the hardware
+        PLATFORM = get_platform_id()
+
         if IS_EXPERIMENT:
 
             # Set phasespace parameters
             SERVER = '192.168.1.109'
             TIMEOUT = 10000000      # in microseconds
             STREAMING = 1           # 0 to disable, 1 for UDP, 2 for TCP, 3 for TCP Broadcast
-            PS_FREQUENCY = 10       # in Hz
+            PS_FREQUENCY = 100      # in Hz
 
-            print('Starting up PhaseSpace system for real-time pose data...')
+            # If chaser is active, it is always the master
+            if CHASER_ACTIVE and PLATFORM == 1:
 
-            # Create an instance of OwlStreamProcessor.
-            # This will initialize the server, set up the rigid bodies, and start the background thread.
-            stream_processor = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER)
+                print('Starting up PhaseSpace system for real-time pose data... CHASER is MASTER')
 
-            # Create an instance of the IMUProcessor
-            imu_processor = IMUProcessor()
+                # Create an instance of OwlStreamProcessor.
+                # This will initialize the server, set up the rigid bodies, and start the background thread.
+                streamChaser = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
+
+                # Create an instance of the IMUProcessor
+                imuChaser = IMUProcessor()
+
+            # If the chaser is active and the target is active, then target must be the slave
+            if CHASER_ACTIVE and TARGET_ACTIVE and PLATFORM == 2:
+
+                print('Starting up PhaseSpace system for real-time pose data... TARGET is SLAVE')
+
+                # Create an instance of OwlStreamProcessor.
+                # This will initialize the server, set up the rigid bodies, and start the background thread.
+                streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
+
+                # Create an instance of the IMUProcessor
+                imuTarget = IMUProcessor()
+
+            # If the chaser is NOT active but the target is active, then it must be the master
+            if not CHASER_ACTIVE and TARGET_ACTIVE and PLATFORM == 2:
+
+                print('Starting up PhaseSpace system for real-time pose data... TARGET is MASTER')
+
+                # Create an instance of OwlStreamProcessor.
+                # This will initialize the server, set up the rigid bodies, and start the background thread.
+                streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
+
+                # Create an instance of the IMUProcessor
+                imuTarget = IMUProcessor()
+
+        while True:
+                
+            if IS_EXPERIMENT:
+
+                print('Waiting for valid data from PhaseSpace...')
+
+                # Get the latest states from PhaseSpace
+                if PLATFORM == 1:
+                    latest_states = streamChaser.get()
+                elif PLATFORM == 2:
+                    latest_states = streamTarget.get()
+                else:
+                    print('Invalid platform selected; terminating control loop...')
+                    break
+
+                # Check that the data is valid and chaser is active
+                if latest_states.get("chaser") is None and CHASER_ACTIVE:
+
+                    # If there is no data but the chaser is active, then wait for new data
+                    print('Chaser data is invalid; waiting for good data...')
+                    currentLocationChaser = None
+                    time.sleep(2)
+                    continue
+
+                # Check that the data is valid and target is active
+                if latest_states.get("target") is None and TARGET_ACTIVE:
+
+                    # If there is no data but the target is active, then wait for new data
+                    print('Target data is invalid; waiting for good data...')
+                    currentLocationTarget = None
+                    time.sleep(2)
+                    continue
+
+                # Check that the data is valid and obstacle is active
+                if latest_states.get("obstacle") is None and OBSTACLE_ACTIVE:
+
+                    # If there is no data but the obstacle is active, then wait for new data
+                    print('Obstacle data is invalid;  waiting for good data...')
+                    currentLocationObstacle = None
+                    time.sleep(2)
+                    continue
+                    
+                
+                # If this part of the loop is reached, then all data is valid
+                break         
+
 
         # Handle GPIO logic for the thrustersChaser
         thrustersChaser = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
@@ -111,14 +193,22 @@ def main():
         thrustersObstacle = Thrusters(pwm_frequency=5, is_experiment=IS_EXPERIMENT)
 
         # Set the start time for the experiment
-        t_init = time.perf_counter()
+        if IS_EXPERIMENT:
+            # Get the latest states from PhaseSpace
+            if PLATFORM == 1:
+                latest_states = streamChaser.get()
+                t_init = latest_states.get("chaser")['t']
+            elif PLATFORM == 2:
+                latest_states = streamTarget.get()
+                t_init = latest_states.get("target")['t']
+            else:
+                print('Invalid platform selected; terminating control loop...')
+            
+        else:
 
-        # Set the start time for simulations
-        t_now = 0
-        t_rt = time.perf_counter()
-
-        # Get the identity of the hardware
-        PLATFORM = get_platform_id()
+            # Set the start time for simulations
+            t_now = 0
+            t_rt = time.perf_counter()
 
         # Start the thrustersChaser
         thrustersChaser.start()
@@ -139,113 +229,50 @@ def main():
         while True:
 
             #========================================#
-            # HANDLE TERMINATION CONDITIONS
-            #========================================#
-
-            # Check if the experiment duration has been reached
-            if IS_EXPERIMENT:
-
-                if time.perf_counter() - t_init >= DURATION:
-                    print('Experiment complete; terminating control loop...')
-                    break
-
-                t_now = time.perf_counter()-t_init
-
-            else:
-
-                if t_now >= DURATION:
-                    print('Simulation complete; terminating control loop...')
-                    break
-
-                if IS_REALTIME:
-
-                    # Set the real-time 
-                    t_rt = time.perf_counter() 
-
-            #========================================#
-            # HANDLE PHASE TRANSITIONS
-            #========================================#
-
-            track_phase(t_now)
-
-            #========================================#
-            # MAIN LOOP PROCESSING 
+            # HANDLE DATA FETCHING 
             #========================================#
 
             if IS_EXPERIMENT:
 
                 # Get the latest states from PhaseSpace
-                latest_states = stream_processor.get()
-
-                # Check that the data is valid and chaser is active
-                if latest_states.get("chaser") is None and CHASER_ACTIVE:
-
-                    # If there is no data but the chaser is active, then wait for new data
-                    print('Chaser data is invalid; waiting for good data...')
-                    t_init = time.perf_counter()  # Reset the clock
-                    currentLocationChaser = None
-                    time.sleep(2)
-                    continue
-                
-                elif latest_states.get("chaser") is not None and CHASER_ACTIVE:
+                if PLATFORM == 1:
+                    latest_states = streamChaser.get()
                     currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
-                                    latest_states.get("chaser")['pos'][1],
-                                    latest_states.get("chaser")['att'],
-                                    latest_states.get("chaser")['vel'][0],
-                                    latest_states.get("chaser")['vel'][1],
-                                    latest_states.get("chaser")['omega']])
-                    
-                else:
-                    currentLocationChaser = None
-                    pass
-
-                # Check that the data is valid and target is active
-                if latest_states.get("target") is None and TARGET_ACTIVE:
-
-                    # If there is no data but the target is active, then wait for new data
-                    print('Target data is invalid; waiting for good data...')
-                    t_init = time.perf_counter()  # Reset the clock
-                    currentLocationTarget = None
-                    time.sleep(2)
-                    continue
-                
-                elif latest_states.get("target") is not None and TARGET_ACTIVE:
+                                                    latest_states.get("chaser")['pos'][1],
+                                                    latest_states.get("chaser")['att'],
+                                                    latest_states.get("chaser")['vel'][0],
+                                                    latest_states.get("chaser")['vel'][1],
+                                                    latest_states.get("chaser")['omega']])
                     currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
-                                    latest_states.get("target")['pos'][1],
-                                    latest_states.get("target")['att'],
-                                    latest_states.get("target")['vel'][0],
-                                    latest_states.get("target")['vel'][1],
-                                    latest_states.get("target")['omega']])
+                                                    latest_states.get("target")['pos'][1],
+                                                    latest_states.get("target")['att'],
+                                                    latest_states.get("target")['vel'][0],
+                                                    latest_states.get("target")['vel'][1],
+                                                    latest_states.get("target")['omega']])
+                elif PLATFORM == 2:
+                    latest_states = streamTarget.get()
+                    currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
+                                                    latest_states.get("chaser")['pos'][1],
+                                                    latest_states.get("chaser")['att'],
+                                                    latest_states.get("chaser")['vel'][0],
+                                                    latest_states.get("chaser")['vel'][1],
+                                                    latest_states.get("chaser")['omega']])
                     
+                    currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
+                                                    latest_states.get("target")['pos'][1],
+                                                    latest_states.get("target")['att'],
+                                                    latest_states.get("target")['vel'][0],
+                                                    latest_states.get("target")['vel'][1],
+                                                    latest_states.get("target")['omega']])
                 else:
-                    # If there is no data but the target is active, then wait for new data
-                    currentLocationTarget = None
-                    pass
-
-                # Check that the data is valid and obstacle is active
-                if latest_states.get("obstacle") is None and OBSTACLE_ACTIVE:
-
-                    # If there is no data but the obstacle is active, then wait for new data
-                    print('Obstacle data is invalid;  waiting for good data...')
-                    t_init = time.perf_counter()  # Reset the clock
-                    currentLocationObstacle = None
-                    time.sleep(2)
-                    continue
-                
-                elif latest_states.get("obstacle") is not None and OBSTACLE_ACTIVE:
-                    currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
-                                    latest_states.get("obstacle")['pos'][1],
-                                    latest_states.get("obstacle")['att'],
-                                    latest_states.get("obstacle")['vel'][0],
-                                    latest_states.get("obstacle")['vel'][1],
-                                    latest_states.get("obstacle")['omega']])
-                    
-                else:
-                    currentLocationObstacle = None
-                    pass               
+                    print('Invalid platform selected; terminating control loop...')
+                    break
                 
                 # Get the latest IMU data
-                currentGyroAccel = imu_processor.get()
+                if PLATFORM == 1:
+                    currentGyroAccel = imuChaser.get()
+                elif PLATFORM == 2:
+                    currentGyroAccel = imuTarget.get()
             
                 
             else:
@@ -291,6 +318,46 @@ def main():
                 currentGyroAccel['ax'] = 0.0
                 currentGyroAccel['ay'] = 0.0
                 currentGyroAccel['az'] = 0.0
+
+            #========================================#
+            # HANDLE TERMINATION CONDITIONS
+            #========================================#
+
+            # Check if the experiment duration has been reached
+            if IS_EXPERIMENT:
+
+                if PLATFORM == 1:
+
+                    if latest_states.get("chaser")['t'] - t_init >= DURATION:
+                        print('Experiment complete; terminating control loop...')
+                        break
+
+                    t_now = latest_states.get("chaser")['t']-t_init
+
+                elif PLATFORM == 2:
+
+                    if latest_states.get("target")['t'] - t_init >= DURATION:
+                        print('Experiment complete; terminating control loop...')
+                        break
+
+                    t_now = latest_states.get("target")['t']-t_init
+
+            else:
+
+                if t_now >= DURATION:
+                    print('Simulation complete; terminating control loop...')
+                    break
+
+                if IS_REALTIME:
+
+                    # Set the real-time 
+                    t_rt = time.perf_counter() 
+
+            #========================================#
+            # HANDLE PHASE TRANSITIONS
+            #========================================#
+
+            track_phase(t_now)
 
             #========================================#
             # HANDLE MAIN PHASE LOGIC
@@ -340,7 +407,7 @@ def main():
 
                 # Define the desired location for the chaser
                 # [m, m, rad, m/s, m/s, rad/s]
-                desiredLocationChaser = np.array([1.7558, 1.7096, np.pi, 0.0, 0.0, 0.0])  
+                desiredLocationChaser = np.array([2.2558, 1.2096, np.pi, 0.0, 0.0, 0.0])  
                 
                 # Define the desired location for the target
                 # [m, m, rad, m/s, m/s, rad/s]
@@ -348,7 +415,7 @@ def main():
 
                 # Define the desired location for the obstacle
                 # [m, m, rad, m/s, m/s, rad/s]
-                desiredLocationObstacle = np.array([1.7558, 0.7096, 0.0, 0.0, 0.0, 0.0])  
+                desiredLocationObstacle = np.array([1.7558, 1.2096, 0.0, 0.0, 0.0, 0.0])  
 
                 # Update the phase clock
                 phase2_clock += PERIOD
@@ -374,9 +441,11 @@ def main():
                 # Based on the current time, calculate the desired angle
                 desiredAngle = desiredAngularVelocity * phase3_clock
 
-                desiredLocationChaser = np.array([1.7558, 1.7096, desiredAngle, 0.0, 0.0, desiredAngularVelocity]) 
+                desiredLocationChaser = np.array([2.2558, 1.2096, np.pi, 0.0, 0.0, 0.0]) 
+
+                desiredLocationTarget = np.array([1.7558, 1.2096, 0.0, 0.0, 0.0, 0.0]) 
                 
-                desiredLocationTarget = np.array([1.7558, 1.2096, desiredAngle, 0.0, 0.0, desiredAngularVelocity])  
+                #desiredLocationTarget = np.array([1.7558, 1.2096, desiredAngle, 0.0, 0.0, desiredAngularVelocity])  
                 
                 # Define the desired location for the obstacle
                 # [m, m, rad, m/s, m/s, rad/s]
@@ -393,7 +462,7 @@ def main():
 
                 # Define the desired location for the chaser
                 # [m, m, rad, m/s, m/s, rad/s]
-                desiredLocationChaser = np.array([1.7558, 1.7096, np.pi, 0.0, 0.0, 0.0])  
+                desiredLocationChaser = np.array([2.2558, 1.2096, np.pi, 0.0, 0.0, 0.0]) 
                 
                 # Define the desired location for the target
                 # [m, m, rad, m/s, m/s, rad/s]
@@ -401,7 +470,7 @@ def main():
                 
                 # Define the desired location for the obstacle
                 # [m, m, rad, m/s, m/s, rad/s]
-                desiredLocationObstacle = np.array([1.7558, 0.7096, 0.0, 0.0, 0.0, 0.0])
+                desiredLocationObstacle = np.array([1.7558, 1.2096, np.pi, 0.0, 0.0, 0.0]) 
 
                 # Update the phase clock
                 phase4_clock += PERIOD
@@ -540,14 +609,27 @@ def main():
 
             if IS_EXPERIMENT:
 
-                # Calculate elapsed time and determine sleep time for consistent loop timing
-                t_elapsed = time.perf_counter() - t_now
-                sleep_time = PERIOD - t_elapsed
+                if PLATFORM == 1:
 
-                if sleep_time > 0:
-                    if sleep_time > 0.001:  # if sleep time is greater than 1 ms, use time.sleep
-                        time.sleep(sleep_time - 0.001)
+                    # Calculate elapsed time and determine sleep time for consistent loop timing
+                    t_elapsed = latest_states.get("chaser")['t'] - t_now
+                    sleep_time = PERIOD - t_elapsed
+
+                    if sleep_time > 0:
+                        if sleep_time > 0.001:  # if sleep time is greater than 1 ms, use time.sleep
+                            time.sleep(sleep_time - 0.001)
                     precise_delay_microsecond((sleep_time % 0.001) * 1e6)
+
+                elif PLATFORM == 2:
+
+                    # Calculate elapsed time and determine sleep time for consistent loop timing
+                    t_elapsed = latest_states.get("target")['t'] - t_now
+                    sleep_time = PERIOD - t_elapsed
+
+                    if sleep_time > 0:
+                        if sleep_time > 0.001:
+                            time.sleep(sleep_time - 0.001)
+                        precise_delay_microsecond((sleep_time % 0.001) * 1e6)
 
             else:
 
@@ -569,8 +651,12 @@ def main():
         if IS_EXPERIMENT:
 
             # Stop the background data stream gracefully
-            stream_processor.stop()
-            imu_processor.stop()
+            if PLATFORM == 1:
+                streamChaser.stop()
+                imuChaser.stop()
+            elif PLATFORM == 2:
+                streamTarget.stop()
+                imuTarget.stop()
 
             # Ensure the pucks are off
             enable_disable_pucks(False)
@@ -642,11 +728,12 @@ def main():
 
 
 if __name__ == '__main__':
+    main()  # Run the main function which handles command line arguments
+    
+    # Uncomment below for profiling if needed
     # profiler = cProfile.Profile()
     # profiler.enable()
-    main()  # Run the code you want to profile
+    # main()
     # profiler.disable()
-
-    # # Create a Stats object and sort the results
     # stats = pstats.Stats(profiler).sort_stats('cumulative')
-    # stats.print_stats(100)  # Print the 10 slowest functions
+    # stats.print_stats(100)  # Print the 100 slowest functions
