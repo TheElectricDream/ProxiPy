@@ -33,6 +33,16 @@ def main():
     thrustersObstacle = None
     dataContainer = None
 
+    currentGyroAccel = {}
+
+    phase0_clock = 0
+    phase1_clock = 0
+    phase2_clock = 0
+    phase3_clock = 0
+    phase4_clock = 0
+    phase5_clock = 0
+
+
     try:
         print('Setting initial control loop parameters...')
 
@@ -56,7 +66,7 @@ def main():
         track_phase, is_phase = create_phase_tracker(phases)
 
         # Set experiment parameters
-        IS_EXPERIMENT = True
+        IS_EXPERIMENT = False
 
         # Set simulation parameters
         IS_REALTIME = False
@@ -273,17 +283,18 @@ def main():
                                                     latest_states.get("obstacle")['vel'][0],
                                                     latest_states.get("obstacle")['vel'][1],
                                                     latest_states.get("obstacle")['omega']])
+                
+                # Placeholder values for simulations
+                currentGyroAccel['gx'] = 0.0
+                currentGyroAccel['gy'] = 0.0
+                currentGyroAccel['gz'] = 0.0
+                currentGyroAccel['ax'] = 0.0
+                currentGyroAccel['ay'] = 0.0
+                currentGyroAccel['az'] = 0.0
 
             #========================================#
             # HANDLE MAIN PHASE LOGIC
             #========================================#
-
-            phase0_clock = 0
-            phase1_clock = 0
-            phase2_clock = 0
-            phase3_clock = 0
-            phase4_clock = 0
-            phase5_clock = 0
 
             #----------------------------------------#
             # PHASE 0: Initialization
@@ -296,8 +307,9 @@ def main():
                 desiredLocationTarget = np.array([0, 0, 0, 0, 0, 0])
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
-                # Set the PUCKS
-                enable_disable_pucks(False)
+                if IS_EXPERIMENT:
+                    # Set the PUCKS
+                    enable_disable_pucks(False)
 
                 # Update the phase clock
                 phase0_clock += PERIOD
@@ -313,8 +325,9 @@ def main():
                 desiredLocationTarget = np.array([0, 0, 0, 0, 0, 0])
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
-                # Set the PUCKS
-                enable_disable_pucks(True)
+                if IS_EXPERIMENT:
+                    # Set the PUCKS
+                    enable_disable_pucks(True)
 
                 # Update the phase clock
                 phase1_clock += PERIOD
@@ -404,8 +417,9 @@ def main():
                 desiredLocationTarget = np.array([0, 0, 0, 0, 0, 0])
                 desiredLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
 
-                # Set the PUCKS
-                enable_disable_pucks(False)
+                if IS_EXPERIMENT:
+                    # Set the PUCKS
+                    enable_disable_pucks(False)
 
                 # Update the phase clock
                 phase5_clock += PERIOD
@@ -552,69 +566,78 @@ def main():
                         precise_delay_microsecond((sleep_time % 0.001) * 1e6)
 
 
-        # if IS_EXPERIMENT:
+        if IS_EXPERIMENT:
 
-        #     # Stop the background data stream gracefully
-        #     stream_processor.stop()
-        #     imu_processor.stop()
+            # Stop the background data stream gracefully
+            stream_processor.stop()
+            imu_processor.stop()
 
-        # # Ensure the pucks are off
-        # enable_disable_pucks(False)
+            # Ensure the pucks are off
+            enable_disable_pucks(False)
 
-        # # Stop the thrustersChaser
-        # thrustersChaser.stop()  # Clean shutdown    
-        # thrustersTarget.stop()  # Clean shutdown
-        # thrustersObstacle.stop()  # Clean shutdown        
+        # Stop the thrustersChaser
+        thrustersChaser.stop()  # Clean shutdown    
+        thrustersTarget.stop()  # Clean shutdown
+        thrustersObstacle.stop()  # Clean shutdown        
                         
         # Export the data
-        #print('Exporting data container to /data/ directory...')
+        print('Exporting data container to /data/ directory...')
+
+        dataContainer.write_to_npy()
 
     except KeyboardInterrupt:
         print("Program interrupted by user")
-    except Exception as e:
-        print(f"Exception occurred: {e}")
     finally:
-        print("Executing cleanup operations...")
+        print('Program completed...')
+
+    # except KeyboardInterrupt:
+    #     print("Program interrupted by user")
+    # except Exception as e:
+    #     print(f"Exception occurred: {e}")
+    # finally:
+    #     print("Executing cleanup operations...")
         
-        # Ensure data is saved
-        try:
-            if dataContainer:
-                print("Saving data...")
-                dataContainer.write_to_npy()
-                print("Data saved successfully")
-        except Exception as e:
-            print(f"Failed to write data: {e}")
+    #     # Ensure data is saved
+    #     try:
+    #         if dataContainer:
+    #             print("Saving data...")
+    #             dataContainer.write_to_npy()
+    #             print("Data saved successfully")
+    #     except Exception as e:
+    #         print(f"Failed to write data: {e}")
             
-        # Ensure pucks are disabled
-        try:
-            print("Disabling pucks...")
-            enable_disable_pucks(False)
-            print("Pucks disabled")
-        except Exception as e:
-            print(f"Failed to disable pucks: {e}")
+    #     # Ensure pucks are disabled
+    #     try:
+    #         print("Disabling pucks...")
+    #         if IS_EXPERIMENT:
+    #             # Set the PUCKS
+    #             enable_disable_pucks(False)
+    #         print("Pucks disabled")
+    #     except Exception as e:
+    #         print(f"Failed to disable pucks: {e}")
             
-        # Shutdown hardware resources
-        try:
-            if IS_EXPERIMENT and stream_processor:
-                stream_processor.stop()
-            if IS_EXPERIMENT and imu_processor:
-                imu_processor.stop()
-        except Exception as e:
-            print(f"Failed to stop processors: {e}")
+    #     # Shutdown hardware resources
+    #     try:
+    #         if IS_EXPERIMENT and stream_processor:
+    #             stream_processor.stop()
+    #         if IS_EXPERIMENT and imu_processor:
+    #             imu_processor.stop()
+    #     except Exception as e:
+    #         print(f"Failed to stop processors: {e}")
             
-        # Stop thrusters
-        try:
-            if thrustersChaser:
-                thrustersChaser.stop()
-            if thrustersTarget:
-                thrustersTarget.stop()
-            if thrustersObstacle:
-                thrustersObstacle.stop()
-            print("Thrusters stopped")
-        except Exception as e:
-            print(f"Failed to stop thrusters: {e}")
+    #     # Stop thrusters
+    #     try:
+    #         if thrustersChaser:
+    #             thrustersChaser.stop()
+    #         if thrustersTarget:
+    #             thrustersTarget.stop()
+    #         if thrustersObstacle:
+    #             thrustersObstacle.stop()
+    #         print("Thrusters stopped")
+    #     except Exception as e:
+    #         print(f"Failed to stop thrusters: {e}")
             
-        print("Cleanup complete")
+    #     print("Cleanup complete")
 
 
 
