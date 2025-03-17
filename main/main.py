@@ -18,31 +18,40 @@ import cProfile
 import pstats
 
 # Import custom libraries
-from tools.utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, handle_data_logging, enable_disable_pucks
+from tools.utils import precise_delay_microsecond, class_init, create_phase_tracker, get_platform_id, handle_data_logging, enable_disable_pucks, set_platform_configuration, handle_loop_timing
 from classes.Phasespace import OwlStreamProcessor
 from classes.Thrusters import Thrusters
 from classes.BMI160 import IMUProcessor
 
 def main():
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Run ProxiPy experiment or simulation')
     parser.add_argument('--experiment', action='store_true', help='Run in experiment mode (default: simulation mode)')
+    parser.add_argument('--debug', action='store_true', help='Skip PhaseSpace but run on hardware (default: as fast as possible)')
     args = parser.parse_args()
     
     # Set experiment flag based on command line argument
     IS_EXPERIMENT = args.experiment
+    IS_DEBUG = args.debug
 
     #IS_EXPERIMENT = True
     
     # Set these to None initially so they can be safely accessed in finally block
     streamChaser = None
+    streamTarget = None
+    streamObstacle = None
     imuChaser = None
+    imuTarget = None
+    imuObstacle = None
     thrustersChaser = None
     thrustersTarget = None
     thrustersObstacle = None
     dataContainer = None
 
-    currentGyroAccel = {}
+    chaserGyroAccel = {}
+    targetGyroAccel = {}
+    obstacleGyroAccel = {}
 
     phase0_clock = 0
     phase1_clock = 0
@@ -92,49 +101,12 @@ def main():
         # Get the identity of the hardware
         PLATFORM = get_platform_id()
 
+        # If this is an experiment, set the platform configuration
         if IS_EXPERIMENT:
 
-            # Set phasespace parameters
-            SERVER = '192.168.1.109'
-            TIMEOUT = 10000000      # in microseconds
-            STREAMING = 1           # 0 to disable, 1 for UDP, 2 for TCP, 3 for TCP Broadcast
-            PS_FREQUENCY = 100      # in Hz
-
-            # If chaser is active, it is always the master
-            if CHASER_ACTIVE and PLATFORM == 1:
-
-                print('Starting up PhaseSpace system for real-time pose data... CHASER is MASTER')
-
-                # Create an instance of OwlStreamProcessor.
-                # This will initialize the server, set up the rigid bodies, and start the background thread.
-                streamChaser = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
-
-                # Create an instance of the IMUProcessor
-                imuChaser = IMUProcessor()
-
-            # If the chaser is active and the target is active, then target must be the slave
-            if CHASER_ACTIVE and TARGET_ACTIVE and PLATFORM == 2:
-
-                print('Starting up PhaseSpace system for real-time pose data... TARGET is SLAVE')
-
-                # Create an instance of OwlStreamProcessor.
-                # This will initialize the server, set up the rigid bodies, and start the background thread.
-                streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
-
-                # Create an instance of the IMUProcessor
-                imuTarget = IMUProcessor()
-
-            # If the chaser is NOT active but the target is active, then it must be the master
-            if not CHASER_ACTIVE and TARGET_ACTIVE and PLATFORM == 2:
-
-                print('Starting up PhaseSpace system for real-time pose data... TARGET is MASTER')
-
-                # Create an instance of OwlStreamProcessor.
-                # This will initialize the server, set up the rigid bodies, and start the background thread.
-                streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
-
-                # Create an instance of the IMUProcessor
-                imuTarget = IMUProcessor()
+            streamChaser, streamTarget, streamObstacle, \
+                imuChaser, imuTarget, imuObstacle = set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, \
+                                                                               PLATFORM, OwlStreamProcessor, IMUProcessor)
 
         while True:
                 
@@ -180,7 +152,12 @@ def main():
                     
                 
                 # If this part of the loop is reached, then all data is valid
-                break         
+                break 
+
+            else:
+                
+                # This is not an experiment, stop the loop
+                break        
 
 
         # Handle GPIO logic for the thrustersChaser
@@ -270,9 +247,17 @@ def main():
                 
                 # Get the latest IMU data
                 if PLATFORM == 1:
-                    currentGyroAccel = imuChaser.get()
+                    chaserGyroAccel = imuChaser.get()
+                    targetGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    obstacleGyroAccel = np.array([0, 0, 0, 0, 0, 0])
                 elif PLATFORM == 2:
-                    currentGyroAccel = imuTarget.get()
+                    chaserGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    targetGyroAccel = imuTarget.get()
+                    obstacleGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                elif PLATFORM == 3:
+                    chaserGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    targetGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    obstacleGyroAccel = imuObstacle.get()
             
                 
             else:
@@ -312,12 +297,9 @@ def main():
                                                     latest_states.get("obstacle")['omega']])
                 
                 # Placeholder values for simulations
-                currentGyroAccel['gx'] = 0.0
-                currentGyroAccel['gy'] = 0.0
-                currentGyroAccel['gz'] = 0.0
-                currentGyroAccel['ax'] = 0.0
-                currentGyroAccel['ay'] = 0.0
-                currentGyroAccel['az'] = 0.0
+                chaserGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                targetGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                obstacleGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
 
             #========================================#
             # HANDLE TERMINATION CONDITIONS
@@ -341,6 +323,14 @@ def main():
                         break
 
                     t_now = latest_states.get("target")['t']-t_init
+
+                elif PLATFORM == 3:
+
+                    if latest_states.get("obstacle")['t'] - t_init >= DURATION:
+                        print('Experiment complete; terminating control loop...')
+                        break
+
+                    t_now = latest_states.get("obstacle")['t']-t_init
 
             else:
 
@@ -601,52 +591,17 @@ def main():
             # HANDLE DATA STORAGE
             #========================================#
 
-            handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, currentGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE)
+            handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, chaserGyroAccel, targetGyroAccel, obstacleGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE)
             
             #========================================#
             # HANDLE LOOP SLEEP CONDITIONS
             #========================================#
 
-            if IS_EXPERIMENT:
+            t_now = handle_loop_timing(t_now, t_rt, latest_states, PERIOD, IS_EXPERIMENT, PLATFORM, IS_REALTIME)
 
-                if PLATFORM == 1:
-
-                    # Calculate elapsed time and determine sleep time for consistent loop timing
-                    t_elapsed = latest_states.get("chaser")['t'] - t_now
-                    sleep_time = PERIOD - t_elapsed
-
-                    if sleep_time > 0:
-                        if sleep_time > 0.001:  # if sleep time is greater than 1 ms, use time.sleep
-                            time.sleep(sleep_time - 0.001)
-                    precise_delay_microsecond((sleep_time % 0.001) * 1e6)
-
-                elif PLATFORM == 2:
-
-                    # Calculate elapsed time and determine sleep time for consistent loop timing
-                    t_elapsed = latest_states.get("target")['t'] - t_now
-                    sleep_time = PERIOD - t_elapsed
-
-                    if sleep_time > 0:
-                        if sleep_time > 0.001:
-                            time.sleep(sleep_time - 0.001)
-                        precise_delay_microsecond((sleep_time % 0.001) * 1e6)
-
-            else:
-
-                t_now += PERIOD
-
-                if IS_REALTIME:
-
-                    # Calculate the time to sleep
-                    t_elapsed = time.perf_counter() - t_rt
-                    sleep_time = PERIOD - t_elapsed
-
-                    # Handle the loop timing to ensure a consistent loop rate
-                    if sleep_time > 0:
-                        if sleep_time > 0.001:
-                            time.sleep(sleep_time - 0.001)
-                        precise_delay_microsecond((sleep_time % 0.001) * 1e6)
-
+        #========================================#
+        # HANDLE SHUTDOWN
+        #========================================#       
 
         if IS_EXPERIMENT:
 
@@ -657,6 +612,9 @@ def main():
             elif PLATFORM == 2:
                 streamTarget.stop()
                 imuTarget.stop()
+            elif PLATFORM == 3:
+                streamObstacle.stop()
+                imuObstacle.stop()
 
             # Ensure the pucks are off
             enable_disable_pucks(False)

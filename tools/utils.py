@@ -12,6 +12,144 @@ try:
 except ImportError:
     print('Unable to import Jetson.GPIO, running in simulation mode.')
 
+def handle_loop_timing(t_now, t_rt, latest_states, PERIOD, IS_EXPERIMENT, PLATFORM, IS_REALTIME):
+
+    if IS_EXPERIMENT:
+
+        if PLATFORM == 1:
+
+            # Calculate elapsed time and determine sleep time for consistent loop timing
+            t_elapsed = latest_states.get("chaser")['t'] - t_now
+            sleep_time = PERIOD - t_elapsed
+
+            if sleep_time > 0:
+                if sleep_time > 0.001:  # if sleep time is greater than 1 ms, use time.sleep
+                    time.sleep(sleep_time - 0.001)
+            precise_delay_microsecond((sleep_time % 0.001) * 1e6)
+
+        elif PLATFORM == 2:
+
+            # Calculate elapsed time and determine sleep time for consistent loop timing
+            t_elapsed = latest_states.get("target")['t'] - t_now
+            sleep_time = PERIOD - t_elapsed
+
+            if sleep_time > 0:
+                if sleep_time > 0.001:
+                    time.sleep(sleep_time - 0.001)
+                precise_delay_microsecond((sleep_time % 0.001) * 1e6)
+
+        elif PLATFORM == 3:
+
+            # Calculate elapsed time and determine sleep time for consistent loop timing
+            t_elapsed = latest_states.get("obstacle")['t'] - t_now
+            sleep_time = PERIOD - t_elapsed
+
+            if sleep_time > 0:
+                if sleep_time > 0.001:
+                    time.sleep(sleep_time - 0.001)
+                precise_delay_microsecond((sleep_time % 0.001) * 1e6)
+
+    else:
+
+        t_now += PERIOD
+
+        if IS_REALTIME:
+
+            # Calculate the time to sleep
+            t_elapsed = time.perf_counter() - t_rt
+            sleep_time = PERIOD - t_elapsed
+
+            # Handle the loop timing to ensure a consistent loop rate
+            if sleep_time > 0:
+                if sleep_time > 0.001:
+                    time.sleep(sleep_time - 0.001)
+                precise_delay_microsecond((sleep_time % 0.001) * 1e6)
+
+    return t_now
+
+def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PLATFORM, OwlStreamProcessor, IMUProcessor):
+
+    # Set phasespace parameters
+    SERVER = '192.168.1.109'
+    TIMEOUT = 10000000      # in microseconds
+    STREAMING = 1           # 0 to disable, 1 for UDP, 2 for TCP, 3 for TCP Broadcast
+    PS_FREQUENCY = 100      # in Hz
+
+    # If chaser is active, it is always the master
+    if CHASER_ACTIVE:
+
+        if PLATFORM == 1:  # This is currently the chaser
+
+            print('Starting up PhaseSpace system for real-time pose data... CHASER is MASTER')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamChaser = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
+
+            # Create an instance of the IMUProcessor
+            imuChaser = IMUProcessor()
+
+        if PLATFORM == 2:  # This is currently the target
+
+            print('Starting up PhaseSpace system for real-time pose data... TARGET is SLAVE')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
+
+            # Create an instance of the IMUProcessor
+            imuTarget = IMUProcessor()
+
+        if PLATFORM == 3:
+
+            print('Starting up PhaseSpace system for real-time pose data... OBSTACLE is SLAVE')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
+
+            # Create an instance of the IMUProcessor
+            imuObstacle = IMUProcessor()
+
+    elif not CHASER_ACTIVE and TARGET_ACTIVE:
+
+        if PLATFORM == 2:
+
+            print('Starting up PhaseSpace system for real-time pose data... TARGET is MASTER')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
+
+            # Create an instance of the IMUProcessor
+            imuTarget = IMUProcessor()
+
+        if PLATFORM == 3:
+
+            print('Starting up PhaseSpace system for real-time pose data... OBSTACLE is SLAVE')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
+
+            # Create an instance of the IMUProcessor
+            imuObstacle = IMUProcessor()
+
+    elif not CHASER_ACTIVE and not TARGET_ACTIVE and OBSTACLE_ACTIVE:
+
+        if PLATFORM == 3:
+
+            print('Starting up PhaseSpace system for real-time pose data... OBSTACLE is MASTER')
+
+            # Create an instance of OwlStreamProcessor.
+            # This will initialize the server, set up the rigid bodies, and start the background thread.
+            streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
+
+            # Create an instance of the IMUProcessor
+            imuObstacle = IMUProcessor()
+
+    return streamChaser, streamTarget, streamObstacle, imuChaser, imuTarget, imuObstacle
+
 def enable_disable_pucks(enable=False):
 
     # Define the pin for the pucks
@@ -44,7 +182,7 @@ def enable_disable_pucks(enable=False):
 
             print("Unable to set the pucks to LOW")
 
-def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, currentGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE):
+def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, targetControl, thrustersTarget, obstacleControl, thrustersObstacle, chaserGyroAccel, targetGyroAccel, obstacleGyroAccel, dataContainer, CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE):
     """
     Handle the data logging.
     This function appends the current time and spacecraft states to the data container.
@@ -94,12 +232,12 @@ def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, ta
             'Chaser PWM [6]': thrustersChaser.get_state(6),
             'Chaser PWM [7]': thrustersChaser.get_state(7),
             'Chaser PWM [8]': thrustersChaser.get_state(8),
-            'Chaser Gyro X (rad/s)': currentGyroAccel['gx'],
-            'Chaser Gyro Y (rad/s)': currentGyroAccel['gy'],
-            'Chaser Gyro Z (rad/s)': currentGyroAccel['gz'],
-            'Chaser Accel X (m/s²)': currentGyroAccel['ax'],
-            'Chaser Accel Y (m/s²)': currentGyroAccel['ay'],
-            'Chaser Accel Z (m/s²)': currentGyroAccel['az']
+            'Chaser Gyro X (rad/s)': chaserGyroAccel['gx'],
+            'Chaser Gyro Y (rad/s)': chaserGyroAccel['gy'],
+            'Chaser Gyro Z (rad/s)': chaserGyroAccel['gz'],
+            'Chaser Accel X (m/s²)': chaserGyroAccel['ax'],
+            'Chaser Accel Y (m/s²)': chaserGyroAccel['ay'],
+            'Chaser Accel Z (m/s²)': chaserGyroAccel['az']
         }
 
     else:
@@ -130,7 +268,13 @@ def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, ta
             'Target PWM [5]': thrustersTarget.get_state(5),
             'Target PWM [6]': thrustersTarget.get_state(6),
             'Target PWM [7]': thrustersTarget.get_state(7),
-            'Target PWM [8]': thrustersTarget.get_state(8)
+            'Target PWM [8]': thrustersTarget.get_state(8),
+            'Target Gyro X (rad/s)': targetGyroAccel['gx'],
+            'Target Gyro Y (rad/s)': targetGyroAccel['gy'],
+            'Target Gyro Z (rad/s)': targetGyroAccel['gz'],
+            'Target Accel X (m/s²)': targetGyroAccel['ax'],
+            'Target Accel Y (m/s²)': targetGyroAccel['ay'],
+            'Target Accel Z (m/s²)': targetGyroAccel['az']
         }
 
     else:
@@ -161,13 +305,18 @@ def handle_data_logging(t_now, latest_states, chaserControl, thrustersChaser, ta
             'Obstacle PWM [5]': thrustersObstacle.get_state(5),
             'Obstacle PWM [6]': thrustersObstacle.get_state(6),
             'Obstacle PWM [7]': thrustersObstacle.get_state(7),
-            'Obstacle PWM [8]': thrustersObstacle.get_state(8)
+            'Obstacle PWM [8]': thrustersObstacle.get_state(8),
+            'Obstacle Gyro X (rad/s)': obstacleGyroAccel['gx'],
+            'Obstacle Gyro Y (rad/s)': obstacleGyroAccel['gy'],
+            'Obstacle Gyro Z (rad/s)': obstacleGyroAccel['gz'],
+            'Obstacle Accel X (m/s²)': obstacleGyroAccel['ax'],
+            'Obstacle Accel Y (m/s²)': obstacleGyroAccel['ay'],
+            'Obstacle Accel Z (m/s²)': obstacleGyroAccel['az']
         }
 
     else:
 
         batch_data_obstacle = {}
-
 
     # Merge the dictionaries
     batch_data = {**batch_data_general, **batch_data_chaser, **batch_data_target, **batch_data_obstacle}
