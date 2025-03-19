@@ -35,14 +35,18 @@ class IMUProcessor:
         # For computing angular velocity and linear acceleration
         self.prev_data = None
         self.prev_time = None
+
+        if self.sensor is None:
+            pass
+        else:
         
-        # Thread synchronization
-        self.lock = threading.Lock()
-        self._stop_event = threading.Event()
-        
-        # Start the data streaming in a background thread
-        self.thread = threading.Thread(target=self._read_imu_data, daemon=True)
-        self.thread.start()
+            # Thread synchronization
+            self.lock = threading.Lock()
+            self._stop_event = threading.Event()
+            
+            # Start the data streaming in a background thread
+            self.thread = threading.Thread(target=self._read_imu_data, daemon=True)
+            self.thread.start()
     
     def _initialize_sensor(self):
         """
@@ -58,7 +62,7 @@ class IMUProcessor:
             return sensor
         except Exception as e:
             print(f"Error initializing sensor: {e}")
-            raise
+            sensor = None
 
     def _read_imu_data(self):
         """

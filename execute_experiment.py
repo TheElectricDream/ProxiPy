@@ -586,35 +586,35 @@ def main():
     
     print("\nAll transfers and virtual environment setups complete!")
     
-    # Ask user if this is an experiment
-    is_experiment = input("\nIs this an experiment? (yes/no): ").lower().strip() in ['yes', 'y', 'true', '1']
-    experiment_value = True if is_experiment else False
+    # # Ask user if this is an experiment
+    # is_experiment = input("\nIs this an experiment? (yes/no): ").lower().strip() in ['yes', 'y', 'true', '1']
+    # experiment_value = True if is_experiment else False
     
-    # Execute main.py on both computers
-    print("\n" + "="*50)
-    print("EXECUTING REMOTE SCRIPTS")
-    print("="*50)
+    # # Execute main.py on both computers
+    # print("\n" + "="*50)
+    # print("EXECUTING REMOTE SCRIPTS")
+    # print("="*50)
     
-    # Run on spot-red
-    print("\nExecuting main.py on spot-red...")
-    red_success, red_output = red_transfer.execute_remote_script(
-        "main/main.py", 
-        command_args="--experiment"
-    )
+    # # Run on spot-red
+    # print("\nExecuting main.py on spot-red...")
+    # red_success, red_output = red_transfer.execute_remote_script(
+    #     "main/main.py", 
+    #     command_args="--experiment"
+    # )
     
-    # Run on spot-black
-    print("\nExecuting main.py on spot-black...")
-    black_success, black_output = black_transfer.execute_remote_script(
-        "main/main.py", 
-        command_args="--experiment"
-    )
+    # # Run on spot-black
+    # print("\nExecuting main.py on spot-black...")
+    # black_success, black_output = black_transfer.execute_remote_script(
+    #     "main/main.py", 
+    #     command_args="--experiment"
+    # )
     
-    # Summary
-    print("\n" + "="*50)
-    print("EXECUTION SUMMARY")
-    print("="*50)
-    print(f"spot-red execution: {'SUCCESS' if red_success else 'FAILED'}")
-    print(f"spot-black execution: {'SUCCESS' if black_success else 'FAILED'}")
+    # # Summary
+    # print("\n" + "="*50)
+    # print("EXECUTION SUMMARY")
+    # print("="*50)
+    # print(f"spot-red execution: {'SUCCESS' if red_success else 'FAILED'}")
+    # print(f"spot-black execution: {'SUCCESS' if black_success else 'FAILED'}")
 
 
 if __name__ == "__main__":

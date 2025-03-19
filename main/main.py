@@ -87,7 +87,7 @@ def main():
 
         # Set active platforms
         CHASER_ACTIVE = True
-        TARGET_ACTIVE = True
+        TARGET_ACTIVE = False
         OBSTACLE_ACTIVE = False
 
         print('Importing JSON configuration files...')
@@ -180,6 +180,9 @@ def main():
                 t_init = latest_states.get("target")['t']
             else:
                 print('Invalid platform selected; terminating control loop...')
+
+            # Setting to zero but never used
+            t_rt = 0
             
         else:
 
@@ -214,50 +217,93 @@ def main():
                 # Get the latest states from PhaseSpace
                 if PLATFORM == 1:
                     latest_states = streamChaser.get()
-                    currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
+                    if CHASER_ACTIVE:
+                        currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
                                                     latest_states.get("chaser")['pos'][1],
                                                     latest_states.get("chaser")['att'],
                                                     latest_states.get("chaser")['vel'][0],
                                                     latest_states.get("chaser")['vel'][1],
                                                     latest_states.get("chaser")['omega']])
-                    currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
+                    else:
+                        currentLocationChaser = np.array([0, 0, 0, 0, 0, 0])
+
+                    if TARGET_ACTIVE:
+                        currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
                                                     latest_states.get("target")['pos'][1],
                                                     latest_states.get("target")['att'],
                                                     latest_states.get("target")['vel'][0],
                                                     latest_states.get("target")['vel'][1],
                                                     latest_states.get("target")['omega']])
+                    else:
+                        currentLocationTarget = np.array([0, 0, 0, 0, 0, 0])
+
+                    if OBSTACLE_ACTIVE:
+                        currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
+                                                    latest_states.get("obstacle")['pos'][1],
+                                                    latest_states.get("obstacle")['att'],
+                                                    latest_states.get("obstacle")['vel'][0],
+                                                    latest_states.get("obstacle")['vel'][1],
+                                                    latest_states.get("obstacle")['omega']])
+                    else:
+                        currentLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
+
                 elif PLATFORM == 2:
                     latest_states = streamTarget.get()
-                    currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
+                    if CHASER_ACTIVE:
+                        currentLocationChaser = np.array([latest_states.get("chaser")['pos'][0],
                                                     latest_states.get("chaser")['pos'][1],
                                                     latest_states.get("chaser")['att'],
                                                     latest_states.get("chaser")['vel'][0],
                                                     latest_states.get("chaser")['vel'][1],
                                                     latest_states.get("chaser")['omega']])
-                    
-                    currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
+                    else:
+                        currentLocationChaser = np.array([0, 0, 0, 0, 0, 0])
+
+                    if TARGET_ACTIVE:
+                        currentLocationTarget = np.array([latest_states.get("target")['pos'][0],
                                                     latest_states.get("target")['pos'][1],
                                                     latest_states.get("target")['att'],
                                                     latest_states.get("target")['vel'][0],
                                                     latest_states.get("target")['vel'][1],
                                                     latest_states.get("target")['omega']])
+                    else:
+                        currentLocationTarget = np.array([0, 0, 0, 0, 0, 0])
+
+                    if OBSTACLE_ACTIVE:
+                        currentLocationObstacle = np.array([latest_states.get("obstacle")['pos'][0],
+                                                    latest_states.get("obstacle")['pos'][1],
+                                                    latest_states.get("obstacle")['att'],
+                                                    latest_states.get("obstacle")['vel'][0],
+                                                    latest_states.get("obstacle")['vel'][1],
+                                                    latest_states.get("obstacle")['omega']])
+                    else:
+                        currentLocationObstacle = np.array([0, 0, 0, 0, 0, 0])
                 else:
                     print('Invalid platform selected; terminating control loop...')
                     break
                 
                 # Get the latest IMU data
                 if PLATFORM == 1:
-                    chaserGyroAccel = imuChaser.get()
-                    targetGyroAccel = np.array([0, 0, 0, 0, 0, 0])
-                    obstacleGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    try:
+                        chaserGyroAccel = imuChaser.get()
+                    except:
+                        chaserGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    targetGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    obstacleGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
                 elif PLATFORM == 2:
-                    chaserGyroAccel = np.array([0, 0, 0, 0, 0, 0])
-                    targetGyroAccel = imuTarget.get()
-                    obstacleGyroAccel = np.array([0, 0, 0, 0, 0, 0])
+                    chaserGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    try:
+                        targetGyroAccel = imuTarget.get()
+                    except:
+                        targetGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    obstacleGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
                 elif PLATFORM == 3:
-                    chaserGyroAccel = np.array([0, 0, 0, 0, 0, 0])
-                    targetGyroAccel = np.array([0, 0, 0, 0, 0, 0])
-                    obstacleGyroAccel = imuObstacle.get()
+                    chaserGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    targetGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
+                    try:
+                        obstacleGyroAccel = imuObstacle.get()
+                    except:
+                        obstacleGyroAccel = {'gx': 0.0, 'gy': 0.0, 'gz': 0.0, 'ax': 0.0, 'ay': 0.0, 'az': 0.0}
             
                 
             else:
@@ -608,13 +654,22 @@ def main():
             # Stop the background data stream gracefully
             if PLATFORM == 1:
                 streamChaser.stop()
-                imuChaser.stop()
+                try:
+                    imuChaser.stop()
+                except:
+                    pass
             elif PLATFORM == 2:
                 streamTarget.stop()
-                imuTarget.stop()
+                try:
+                    imuTarget.stop()
+                except:
+                    pass
             elif PLATFORM == 3:
                 streamObstacle.stop()
-                imuObstacle.stop()
+                try:
+                    imuObstacle.stop()
+                except:
+                    pass
 
             # Ensure the pucks are off
             enable_disable_pucks(False)
@@ -634,64 +689,5 @@ def main():
     finally:
         print('Program completed...')
 
-    # except KeyboardInterrupt:
-    #     print("Program interrupted by user")
-    # except Exception as e:
-    #     print(f"Exception occurred: {e}")
-    # finally:
-    #     print("Executing cleanup operations...")
-        
-    #     # Ensure data is saved
-    #     try:
-    #         if dataContainer:
-    #             print("Saving data...")
-    #             dataContainer.write_to_npy()
-    #             print("Data saved successfully")
-    #     except Exception as e:
-    #         print(f"Failed to write data: {e}")
-            
-    #     # Ensure pucks are disabled
-    #     try:
-    #         print("Disabling pucks...")
-    #         if IS_EXPERIMENT:
-    #             # Set the PUCKS
-    #             enable_disable_pucks(False)
-    #         print("Pucks disabled")
-    #     except Exception as e:
-    #         print(f"Failed to disable pucks: {e}")
-            
-    #     # Shutdown hardware resources
-    #     try:
-    #         if IS_EXPERIMENT and stream_processor:
-    #             stream_processor.stop()
-    #         if IS_EXPERIMENT and imu_processor:
-    #             imu_processor.stop()
-    #     except Exception as e:
-    #         print(f"Failed to stop processors: {e}")
-            
-    #     # Stop thrusters
-    #     try:
-    #         if thrustersChaser:
-    #             thrustersChaser.stop()
-    #         if thrustersTarget:
-    #             thrustersTarget.stop()
-    #         if thrustersObstacle:
-    #             thrustersObstacle.stop()
-    #         print("Thrusters stopped")
-    #     except Exception as e:
-    #         print(f"Failed to stop thrusters: {e}")
-            
-    #     print("Cleanup complete")
-
-
-
 if __name__ == '__main__':
     main()  # Run the main function which handles command line arguments
-    
-    # Uncomment below for profiling if needed
-    # profiler = cProfile.Profile()
-    # profiler.enable()
-    # main()
-    # profiler.disable()
-    # stats = pstats.Stats(profiler).sort_stats('cumulative')
-    # stats.print_stats(100)  # Print the 100 slowest functions

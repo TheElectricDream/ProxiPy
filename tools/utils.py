@@ -75,6 +75,13 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
     STREAMING = 1           # 0 to disable, 1 for UDP, 2 for TCP, 3 for TCP Broadcast
     PS_FREQUENCY = 100      # in Hz
 
+    imuChaser = None
+    imuTarget = None
+    imuObstacle = None
+    streamChaser = None
+    streamTarget = None
+    streamObstacle = None
+
     # If chaser is active, it is always the master
     if CHASER_ACTIVE:
 
@@ -87,7 +94,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamChaser = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
 
             # Create an instance of the IMUProcessor
-            imuChaser = IMUProcessor()
+            try:
+                imuChaser = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
         if PLATFORM == 2:  # This is currently the target
 
@@ -98,7 +108,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
 
             # Create an instance of the IMUProcessor
-            imuTarget = IMUProcessor()
+            try:
+                imuTarget = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
         if PLATFORM == 3:
 
@@ -109,7 +122,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
 
             # Create an instance of the IMUProcessor
-            imuObstacle = IMUProcessor()
+            try:
+                imuObstacle = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
     elif not CHASER_ACTIVE and TARGET_ACTIVE:
 
@@ -122,7 +138,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamTarget = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
 
             # Create an instance of the IMUProcessor
-            imuTarget = IMUProcessor()
+            try:
+                imuTarget = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
         if PLATFORM == 3:
 
@@ -133,7 +152,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='slave')
 
             # Create an instance of the IMUProcessor
-            imuObstacle = IMUProcessor()
+            try:
+                imuObstacle = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
     elif not CHASER_ACTIVE and not TARGET_ACTIVE and OBSTACLE_ACTIVE:
 
@@ -146,7 +168,10 @@ def set_platform_configuration(CHASER_ACTIVE, TARGET_ACTIVE, OBSTACLE_ACTIVE, PL
             streamObstacle = OwlStreamProcessor(TIMEOUT, STREAMING, PS_FREQUENCY, SERVER, mode='master')
 
             # Create an instance of the IMUProcessor
-            imuObstacle = IMUProcessor()
+            try:
+                imuObstacle = IMUProcessor()
+            except:
+                print('Unable to initialize IMUProcessor... CHECK CONNECTION.')
 
     return streamChaser, streamTarget, streamObstacle, imuChaser, imuTarget, imuObstacle
 
